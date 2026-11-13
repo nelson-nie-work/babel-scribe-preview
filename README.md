@@ -6,7 +6,7 @@
 <p align="center"><strong>English</strong> · <a href="#简体中文">简体中文</a></p>
 
 <p align="center"><strong>Hold Right Ctrl to speak. Release it to type at the cursor.</strong><br>
-Local Windows dictation built for Mandarin, with a personal dictionary and dictation history.</p>
+Writing a prompt in Codex or Claude Code? Dictate it in Mandarin, mixing in English file and function names as you go. Scribe runs on Windows and includes a personal dictionary and dictation history.</p>
 <p align="center">
   <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.0-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.0-alpha-candidate.exe">Download for Windows x64</a></strong>
   · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.0-alpha-cpu-preview">Release notes and checksum</a>
@@ -73,7 +73,7 @@ Select a correctly spelled term and press **Right Ctrl + L** to save it. You can
 [Back to English](#babel-scribe)
 
 <p align="center"><strong>按住右 Ctrl 说话，松手就把文字打到光标处。</strong><br>
-Windows 本机语音键盘，带个人词库和听写历史。</p>
+用 Codex 或 Claude Code 时，按住右 Ctrl，用中文说清楚要改什么，夹着英文文件名和函数名，松手就出字。Scribe 在 Windows 本机识别，带个人词库和听写历史。</p>
 <p align="center">
   <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.0-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.0-alpha-candidate.exe">下载 Windows x64 安装包</a></strong>
   · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.0-alpha-cpu-preview">发行说明与校验值</a>

@@ -1,7 +1,77 @@
 <p align="center">
-  <img src="scribe/assets/scribe.svg" width="66" height="66" alt="BABEL Scribe 图标">
+  <img src="scribe/assets/scribe.svg" width="66" height="66" alt="BABEL Scribe icon">
 </p>
 <h1 align="center">BABEL Scribe</h1>
+
+<p align="center"><strong>English</strong> · <a href="#简体中文">简体中文</a></p>
+
+<p align="center"><strong>Hold Right Ctrl to speak. Release it to type at the cursor.</strong><br>
+Local Windows dictation built for Mandarin, with a personal dictionary and dictation history.</p>
+<p align="center">
+  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.0-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.0-alpha-candidate.exe">Download for Windows x64</a></strong>
+  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.0-alpha-cpu-preview">Release notes and checksum</a>
+  · <a href="docs/USAGE.md#从源码启动">Run from source (Chinese guide)</a>
+</p>
+<p align="center"><sub>CPU preview · ~115 MB installer · No NVIDIA GPU required · App and demos currently shown in Simplified Chinese</sub></p>
+
+![Hold Right Ctrl to dictate, preview the text in the floating indicator, and release to type at the cursor](media/dictation.gif)
+
+## Get started
+
+1. Download and run the installer. If you're updating an existing installation, quit Scribe from the system tray first.
+2. Open **BABEL Scribe Preview → BABEL Scribe** from the Start menu. The first launch downloads the **~240 MB** SenseVoice model.
+3. Once the tray shows **就绪（单引擎）** (Ready, single engine), place the cursor in a text field. Hold **Right Ctrl** while you speak, then release it to insert the text.
+
+Dictation works offline once the model has downloaded. The preview installer is unsigned. You can check its SHA-256 checksum on the [release page](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.0-alpha-cpu-preview).
+
+## Personal dictionary and history
+
+Select a correctly spelled term and press **Right Ctrl + L** to save it. You can also add common misrecognitions for names, companies, and projects in the dictionary. Double-click the tray icon and open **历史** (History) to find a previous result or recover text that didn't reach the input field.
+
+<details>
+<summary><strong>Quick add</strong> · Select a term and press Right Ctrl + L</summary>
+
+![Save a selected term to the dictionary and undo the addition](media/quick-add.gif)
+
+</details>
+
+<details>
+<summary><strong>Learn from an edit</strong> · Correct a word, then click 记住 (Remember)</summary>
+
+![The learn-from-edit prompt and its undo action](media/learn-after-edit.gif)
+
+</details>
+
+<details>
+<summary><strong>Edit dictionary entries</strong> · Search and edit spellings, common misrecognitions, and notes</summary>
+
+![Edit a dictionary entry in the right-hand pane](media/dictionary.gif)
+
+</details>
+
+<details>
+<summary><strong>Recover past dictation</strong> · Search by text or app, then copy the final result</summary>
+
+![Search dictation history, compare the raw transcription, and copy the final result](media/history.gif)
+
+</details>
+
+## Local recognition and optional online cleanup
+
+| Mode | How it works |
+| --- | --- |
+| **CPU installer** | SenseVoice runs on your device. Dictation works offline after the initial model download. |
+| **Optional online cleanup** | Connect a supported service, such as OpenAI, to clean up dictated text. When online cleanup is used, Scribe sends the transcript and relevant dictionary entries. Audio stays on your device. |
+| **Dual-engine mode from source** | An NVIDIA GPU can run Whisper alongside SenseVoice. A separate NVIDIA installer is planned. |
+
+[Shortcuts, settings, known issues, and benchmarks (Chinese guide)](docs/USAGE.md) · [Report an issue](https://github.com/nelson-nie-work/babel-scribe-preview/issues) · [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+
+---
+
+## 简体中文
+
+[Back to English](#babel-scribe)
+
 <p align="center"><strong>按住右 Ctrl 说话，松手就把文字打到光标处。</strong><br>
 Windows 本机语音键盘，带个人词库和听写历史。</p>
 <p align="center">

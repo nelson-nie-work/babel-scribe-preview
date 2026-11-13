@@ -1,0 +1,19 @@
+# 密钥与个人数据永不入库 (共享数据在 ../babel-data/, 历史在 %APPDATA%)
+*.local.json
+keys.json
+babel-data/
+# 真人录音 (个人声音数据)
+bench/audio_real*/
+*.wav
+# 模型与运行产物
+models/
+*.onnx
+*.bin
+__pycache__/
+*.pyc
+.venv/
+.build-venv/
+venv/
+logs/
+dist/
+build/

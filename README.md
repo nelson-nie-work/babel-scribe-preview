@@ -4,9 +4,17 @@
 
 BABEL Scribe is a Windows voice keyboard with on-device recognition, a personal dictionary, and local dictation history.
 
-> v0.1.0-alpha 源码预览 · Windows x64。可从源码运行，CPU 安装包将在完成分发许可核对和干净 Windows 验收后单独提供。
+> v0.1.0-alpha 源码预览 · Windows x64。可下载 CPU 安装包，也可从源码运行。
 
 [从源码启动](#从源码启动) · [听写模式](#听写模式) · [数据与在线整理](#数据与在线整理)
+
+## 下载 Windows x64 CPU 安装包
+
+[下载 BABEL Scribe CPU 安装包（约 115 MB）](https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.0-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.0-alpha-candidate.exe) · [查看发行说明和 SHA-256](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.0-alpha-cpu-preview)
+
+安装后从开始菜单打开 **BABEL Scribe Preview → BABEL Scribe**。首次启动需联网下载约 240 MB 的 SenseVoice 模型。托盘显示「就绪（单引擎）」后，按住右 Ctrl 听写。模型下载后可离线使用。
+
+本安装版使用 SenseVoice，无需 NVIDIA 显卡。OpenAI 等在线整理服务可按需配置。Whisper 双引擎目前可通过源码版使用，NVIDIA 安装版将另行提供。此预览安装包未签名，下载后可用发行页的 SHA-256 校验。
 
 ## 核心功能
 

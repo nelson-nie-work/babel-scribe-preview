@@ -28,6 +28,14 @@ Dictation works offline once the model has downloaded. The preview installer is 
 
 Select a correctly spelled term and press **Right Ctrl + L** to save it. You can also add common misrecognitions for names, companies, and projects in the dictionary. Double-click the tray icon and open **历史** (History) to find a previous result or recover text that didn't reach the input field.
 
+### Correct a whole phrase
+
+1. Double-click the Scribe tray icon and open **词库** (Dictionary).
+2. Open the `Claude Code` entry, or add one with `Claude Code` as **正确写法** (Correct spelling). In **常被听成** (Often heard as), enter the whole misrecognition `Cloud Code`, then click **保存** (Save). Use **历史 → 查看原始识别** (History → View raw recognition) to check the exact spelling and capitalization.
+3. To keep `cloud` in phrases like `cloud sync`, check the separate `Claude` entry. If `Cloud` or `cloud` appears there as a standalone misrecognition, remove it and save.
+
+The phrase rule also works in offline dictation.
+
 <details>
 <summary><strong>Quick add</strong> · Select a term and press Right Ctrl + L</summary>
 
@@ -94,6 +102,14 @@ Select a correctly spelled term and press **Right Ctrl + L** to save it. You can
 ## 词库与历史
 
 选中的正确写法可以用 **右 Ctrl + L** 收进词库。常被听错的人名、公司名和项目名，可以在词库里登记常见错写。漏粘贴或想找回上一句时，双击托盘图标打开「历史」。
+
+### 按完整词组纠错
+
+1. 双击 Scribe 托盘图标，打开「词库」。
+2. 找到 `Claude Code` 词条，或添加一个词条并将「正确写法」填为 `Claude Code`。在右侧「常被听成」里填完整错写 `Cloud Code`，点「保存」。可以到「历史 → 查看原始识别」核对实际写法和大小写。
+3. 如果你也常说 `cloud sync`，检查单独的 `Claude` 词条。若「常被听成」里有单独的 `Cloud` 或 `cloud`，删除对应项并保存。
+
+这条词组规则在离线听写时也会生效。
 
 <details>
 <summary><strong>选词即收</strong> · 选中正确写法，按右 Ctrl + L</summary>

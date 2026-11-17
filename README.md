@@ -8,8 +8,8 @@
 <p align="center"><strong>Hold Right Ctrl to speak. Release it to type at the cursor.</strong><br>
 Writing a prompt in Codex or Claude Code? Dictate it in Mandarin, mixing in English file and function names as you go. Scribe runs on Windows and includes a personal dictionary and dictation history.</p>
 <p align="center">
-  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.0-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.0-alpha-candidate.exe">Download for Windows x64</a></strong>
-  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.0-alpha-cpu-preview">Release notes and checksum</a>
+  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.2-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe">Download for Windows x64</a></strong>
+  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview">Release notes and checksum</a>
   · <a href="docs/USAGE.md#从源码启动">Run from source (Chinese guide)</a>
 </p>
 <p align="center"><sub>CPU preview · ~115 MB installer · No NVIDIA GPU required · App and demos currently shown in Simplified Chinese</sub></p>
@@ -22,7 +22,7 @@ Writing a prompt in Codex or Claude Code? Dictate it in Mandarin, mixing in Engl
 2. Open **BABEL Scribe Preview → BABEL Scribe** from the Start menu. The first launch downloads the **~240 MB** SenseVoice model.
 3. Once the tray shows **就绪（单引擎）** (Ready, single engine), place the cursor in a text field. Hold **Right Ctrl** while you speak, then release it to insert the text.
 
-Dictation works offline once the model has downloaded. The preview installer is unsigned. You can check its SHA-256 checksum on the [release page](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.0-alpha-cpu-preview).
+Dictation works offline once the model has downloaded. The preview installer is unsigned. You can check its SHA-256 checksum on the [release page](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview).
 
 ## Personal dictionary and history
 
@@ -83,8 +83,8 @@ The phrase rule also works in offline dictation.
 <p align="center"><strong>按住右 Ctrl 说话，松手就把文字打到光标处。</strong><br>
 用 Codex 或 Claude Code 时，按住右 Ctrl，用中文说清楚要改什么，夹着英文文件名和函数名，松手就出字。Scribe 在 Windows 本机识别，带个人词库和听写历史。</p>
 <p align="center">
-  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.0-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.0-alpha-candidate.exe">下载 Windows x64 安装包</a></strong>
-  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.0-alpha-cpu-preview">发行说明与校验值</a>
+  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.2-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe">下载 Windows x64 安装包</a></strong>
+  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview">发行说明与校验值</a>
   · <a href="docs/USAGE.md#从源码启动">从源码运行</a>
 </p>
 <p align="center"><sub>CPU 预览版 · 安装包约 115 MB · 无需 NVIDIA 显卡</sub></p>
@@ -97,7 +97,7 @@ The phrase rule also works in offline dictation.
 2. 从开始菜单打开 **BABEL Scribe Preview → BABEL Scribe**。首次启动会下载约 **240 MB** 的 SenseVoice 模型。
 3. 托盘显示「就绪（单引擎）」后，把光标放进任意常用输入框，按住 **右 Ctrl** 说话，松手出字。
 
-模型下载完成后，听写可以离线使用。预览安装包未签名，可在[发行页](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.0-alpha-cpu-preview)核对 SHA-256。
+模型下载完成后，听写可以离线使用。预览安装包未签名，可在[发行页](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview)核对 SHA-256。
 
 ## 词库与历史
 

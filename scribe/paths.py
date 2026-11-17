@@ -14,6 +14,14 @@ def installed_launcher() -> Path | None:
     return launcher if runtime == _REPO / "runtime" and launcher.is_file() else None
 
 
+def cpu_install() -> bool:
+    launcher = installed_launcher()
+    if launcher is None:
+        return False
+    marker = launcher.parent / "scribe-installed.marker"
+    return marker.is_file() and marker.read_text(encoding="utf-8").strip() == "BABEL Scribe CPU package"
+
+
 def settings_dir() -> Path:
     """安装版数据与源码版配置分开保存。"""
     if installed_launcher():

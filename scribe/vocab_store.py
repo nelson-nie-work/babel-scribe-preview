@@ -1,6 +1,7 @@
 """向识别线程提供词库快照，并在用户确认后保存别名。"""
 import json
 import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -15,11 +16,19 @@ class Vocabulary:
     def __init__(self, terms: list):
         self.terms = terms
         self.correct = vocab.build_corrector(terms)
+        self.correct_aliases = vocab.build_alias_corrector(terms)
         self.hotword_terms = vocab.hotword_terms(terms)
         self.hotwords = " ".join(self.hotword_terms)
 
     def prompt(self, a: str, b: str) -> str:
         return vocab.terms_line(vocab.relevant_terms(self.terms, a, b))
+
+
+@dataclass(frozen=True)
+class AliasAddition:
+    alias: str
+    entry: dict
+    created_entry: bool
 
 
 class VocabularyStore:
@@ -58,28 +67,50 @@ class VocabularyStore:
         return True
 
     def learn_alias(self, alias: str, term: str) -> bool:
+        return self.add_alias(alias, term) is not None
+
+    def add_alias(self, alias: str, term: str) -> AliasAddition | None:
         """从最新落盘内容合并一对别名，成功后才发布快照。"""
         alias, term = alias.strip(), term.strip()
-        if not alias or not term or alias == term:
+        alias_key, term_key = vocab.spelling_key(alias), vocab.spelling_key(term)
+        if not alias_key or not term_key or alias_key == term_key:
             raise ValueError("请填写两个不同的写法")
-        if any(len(word) > 40 or not word.isprintable() or not any(c.isalnum() for c in word)
-               for word in (alias, term)):
+        if not all(self._valid_spelling(word) for word in (alias, term)):
             raise ValueError("每个写法最多 40 字，须包含文字或数字")
 
         entries = vocab.load_terms(self.data_dir)
-        entry = next((row for row in entries if row["term"] == term), None)
-        if any(row is not entry and (row["term"] == alias or alias in row.get("aliases", ()))
-               for row in entries):
+        entry = next((row for row in entries if vocab.spelling_key(row["term"]) == term_key), None)
+        other_entries = [row for row in entries if row is not entry]
+        if any(vocab.spelling_key(word) == alias_key for row in other_entries
+               for word in (row["term"], *row.get("aliases", ()))):
             raise ValueError("这个错写已对应另一个词，请检查词库")
-        if any(row is not entry and term in row.get("aliases", ()) for row in entries):
+        if any(vocab.spelling_key(word) == term_key for row in other_entries for word in row.get("aliases", ())):
             raise ValueError("正确写法已被登记为其他词的错写，请检查词库")
         if entry is not None and alias in entry.get("aliases", ()):
             self.current = Vocabulary(entries)
-            return False
-        if entry is None:
+            return None
+        created_entry = entry is None
+        if created_entry:
             entry = self._new_entry(term, "learned")
             entries.append(entry)
+        elif entry["term"] != term:
+            raise ValueError("词库已有另一种正确写法，请在词库中核对。")
         entry.setdefault("aliases", []).append(alias)
+        self._publish(entries)
+        return AliasAddition(alias, {**entry, "aliases": list(entry["aliases"])}, created_entry)
+
+    def undo_alias(self, addition: AliasAddition) -> bool:
+        """只撤销这次新增的错写，保留其他词条和此后的编辑。"""
+        entries = vocab.load_terms(self.data_dir)
+        original = addition.entry
+        entry = next((row for row in entries if row["term"] == original["term"]
+                      and row.get("created_at") == original.get("created_at")), None)
+        if entry is None or addition.alias not in entry.get("aliases", ()):
+            return False
+        if addition.created_entry and entry == original:
+            entries.remove(entry)
+        else:
+            entry["aliases"].remove(addition.alias)
         self._publish(entries)
         return True
 

@@ -8,7 +8,7 @@ path:
   local    关闭智能整理，输出本机结果
   llm      大模型整理并通过防护
   fallback 整理服务全部失败, 输出本地纠正后的 SenseVoice 版本(空则 Whisper)
-  guarded  整理结果被判为编造, 输出同 fallback
+  guarded  整理结果未通过检查, 输出同 fallback
 """
 import concurrent.futures as cf
 from dataclasses import dataclass
@@ -122,8 +122,12 @@ class Pipeline:
         terms = lexicon.prompt(a, b) if lexicon is not None else self.terms()
 
         def accepted(text: str) -> bool:
+            if lexicon is not None:
+                text = lexicon.correct_aliases(text)
             if style == "punctuation":
                 return fuse.same_words(text, local_text)
+            if style == "natural" and not fuse.keeps_natural_words(text, local_text):
+                return False
             return fuse.guard_ok(text, corrected_a, corrected_b, terms)
 
         try:
@@ -134,4 +138,4 @@ class Pipeline:
             return Result(local_text, "fallback", None, a, b)
         if not accepted(out):
             return Result(local_text, "guarded", provider, a, b)
-        return Result(out, "llm", provider, a, b)
+        return Result(lexicon.correct_aliases(out) if lexicon is not None else out, "llm", provider, a, b)

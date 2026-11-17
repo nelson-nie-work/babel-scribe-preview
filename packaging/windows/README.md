@@ -8,7 +8,10 @@
    ```powershell
    py -3.14 -m venv .build-venv
    .\.build-venv\Scripts\python.exe -m pip install --only-binary :all: -r packaging\windows\runtime-lock.txt
-   .\.build-venv\Scripts\python.exe packaging\windows\build_windows.py --work C:\path\to\build-inputs --output C:\path\to\BABEL-Scribe-Setup-x64-0.1.0-alpha-candidate.exe
+   .\.build-venv\Scripts\python.exe packaging\windows\build_windows.py --work C:\path\to\build-inputs --output C:\path\to\BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe
    ```
 
 使用本机模型下载方式，安装器包内不含模型权重和 NVIDIA 库。构建输出含 `runtime-inventory.txt`，可核对实际纳入的包与版本。
+
+
+This CPU installer includes QtBase, PySide/Shiboken, pynput, certifi and tqdm corresponding source archives. Download the exact archives listed in the included BUILD-INPUTS.md before running the builder. The builder validates their SHA-256 digests. The CPU build excludes faster-whisper and its native multimedia dependencies. The source installation still supports NVIDIA and Whisper.

@@ -28,6 +28,35 @@ def test_undo_cannot_remove_word_after_it_gained_a_fixed_alias(tmp_path):
     assert store.current.correct("清样桥") == "青砚桥"
 
 
+def test_undo_new_correction_removes_only_its_rule(tmp_path):
+    store = VocabularyStore(tmp_path, vocab.load_terms(tmp_path))
+    original = (tmp_path / "vocab.json").read_bytes()
+    new = store.add_alias("清样桥", "青砚桥")
+    assert new is not None
+    assert store.current.correct("清样桥") == "青砚桥"
+    assert store.add_alias("清样桥", "青砚桥") is None
+    assert store.undo_alias(new)
+    assert store.current.correct("清样桥") == "清样桥"
+    assert not any(row["term"] == "青砚桥" for row in store.current.terms)
+    assert not store.undo_alias(new)
+    assert json.loads(original) == vocab.load_terms(tmp_path)
+
+
+def test_undo_correction_keeps_existing_terms_and_later_changes(tmp_path):
+    store = VocabularyStore(tmp_path, vocab.load_terms(tmp_path))
+    entry = store.add_word("青砚桥", source="manual")
+    assert entry is not None
+    addition = store.add_alias("清样桥", "青砚桥")
+    assert addition is not None
+    store.save_entry(addition.entry, term="青砚桥", aliases=["清样桥", "轻样桥"],
+                     note="已有词条的新备注", pinyin=False)
+    assert store.undo_alias(addition)
+    saved = next(row for row in vocab.load_terms(tmp_path) if row["term"] == "青砚桥")
+    assert saved["note"] == "已有词条的新备注"
+    assert saved["source"] == "manual" and saved["created_at"] == entry["created_at"]
+    assert saved["aliases"] == ["轻样桥"]
+
+
 def test_learning_refreshes_vocab_after_save_and_keeps_existing_metadata(tmp_path):
     path = tmp_path / "vocab.json"
     store = VocabularyStore(tmp_path, vocab.load_terms(tmp_path))

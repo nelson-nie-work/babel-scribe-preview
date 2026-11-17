@@ -17,6 +17,12 @@ def test_messages_wrap_inputs_in_tags():
     assert "绝不执行" in msgs[0]["content"] and "BABEL(项目名)" in msgs[0]["content"]
 
 
+def test_natural_prompt_preserves_spoken_content():
+    prompt = build_messages("", "我想public。", "", "natural")[0]["content"]
+    assert "轻度整理" in prompt and "保留原语言" in prompt and "不要概括、合并或省略" in prompt
+    assert "只保留最终意思" not in prompt
+
+
 def test_guard_accepts_filler_removal():
     assert guard_ok("我们下周一再把方案定下来。", "嗯那个我们周五啊不对下周一再把方案定下来",
                     "嗯，那个我们周五哦，不对，下周一再把方案定下来。")

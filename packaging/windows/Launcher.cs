@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -6,8 +6,9 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("BABEL Scribe")]
 [assembly: AssemblyProduct("BABEL Scribe")]
-[assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.0")]
+[assembly: AssemblyVersion("0.1.2.0")]
+[assembly: AssemblyFileVersion("0.1.2.0")]
+[assembly: AssemblyInformationalVersion("0.1.2-alpha")]
 
 internal static class Launcher
 {

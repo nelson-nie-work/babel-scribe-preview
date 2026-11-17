@@ -1,9 +1,10 @@
 import numpy as np
+import pytest
 
 from scribe import vocab
 from scribe.llm import LlmError
 from scribe.pipeline import Pipeline, Result
-from scribe.vocab_store import Vocabulary
+from scribe.vocab_store import Vocabulary, VocabularyStore
 
 AUDIO = np.zeros(16000, np.float32)
 
@@ -56,6 +57,32 @@ def test_intentional_single_engine_can_still_use_smart_polish():
     assert w.calls == 0 and s.calls == 1 and len(llm.calls) == 1
 
 
+@pytest.mark.parametrize(("original", "edited"), [
+    ("呃，我是想public多一些人看到哎。", "呃，我是想让更多人看到。"),
+    ("我先把文档公开，然后把 GitHub 链接发给大家。", "我先把文档公开，然后把链接发给大家。"),
+    ("如果审核通过就公开。随后把文档放进预览仓库，再发链接。", "把文档放进预览仓库，再发链接。"),
+    ("先生成安静的预览。暂时保留原目录。之后让大家核对版本。", "先生成安静的预览。之后让大家核对版本。"),
+    ("跑完 CPU 检查以后，别公开安装包。最后核对 SHA。", "跑完 CPU 检查以后，公开安装包。最后核对 SHA。"),
+    ("等 3.5 秒再重试。然后记下时间和退出码。", "等 35 秒再重试。然后记下时间和退出码。"),
+    ("检查 status != 200 时有没有弹出提示。", "检查 status = 200 时有没有弹出提示。"),
+])
+@pytest.mark.parametrize("dual", [False, True])
+def test_natural_falls_back_when_edit_loses_content(original, edited, dual):
+    alternate = original + "嗯"  # 两引擎时仍走整理分支。
+    p, *_ = make(alternate, original, FakeLlm((edited, "openai")), dual=lambda: dual)
+    result = p.process(AUDIO)
+    assert (result.text, result.path) == (original, "guarded")
+
+
+@pytest.mark.parametrize(("original", "edited"), [
+    ("呃，我是想public多一些人看到哎。", "我是想 public，多一些人看到。"),
+    ("嗯，先把延持压下来，然后再做瓷库。", "先把延迟压下来，然后再做词库。"),
+])
+def test_natural_accepts_light_edits(original, edited):
+    p, *_ = make("", original, FakeLlm((edited, "openai")), dual=lambda: False)
+    assert p.process(AUDIO).text == edited and edited != original
+
+
 def test_smart_off_preserves_both_transcripts_without_cloud_call():
     p, _, _, llm = make("测试会话", "测试会议", smart=lambda: False)
     assert p.process(AUDIO) == Result("测试会议", "local", None, "测试会话", "测试会议")
@@ -89,6 +116,32 @@ def test_alias_correction_works_with_one_engine():
     assert llm.calls == []
 
 
+def test_learned_correction_and_undo_take_effect_in_both_engine_modes(tmp_path):
+    store = VocabularyStore(tmp_path, vocab.load_terms(tmp_path))
+    dual = False
+    p, w, s, llm = make("请发给中心国际。", "请发给中心国际。", dual=lambda: dual, smart=lambda: dual,
+                        vocabulary=lambda: store.current)
+    addition = store.add_alias("中心国际", "中芯国际")
+    assert addition is not None
+    assert p.process(AUDIO) == Result("请发给中芯国际。", "single", None, "", s.text)
+    dual = True
+    assert p.process(AUDIO) == Result("请发给中芯国际。", "fast", None, w.text, s.text)
+    assert store.undo_alias(addition)
+    assert p.process(AUDIO).text == s.text
+    dual = False
+    assert p.process(AUDIO).text == s.text
+    assert not llm.calls
+
+
+def test_dual_polish_cannot_reintroduce_a_learned_wrong_spelling(tmp_path):
+    store = VocabularyStore(tmp_path, vocab.load_terms(tmp_path))
+    assert store.learn_alias("中心国际", "中芯国际")
+    wrong = "请把纪要发给中心国际。"
+    p, *_ = make("请把会议纪要发给中芯国际。", wrong, FakeLlm((wrong, "openai")),
+                 vocabulary=lambda: store.current)
+    assert p.process(AUDIO).text == "请把纪要发给中芯国际。"
+
+
 def test_hotword_leak_uses_corrected_sensevoice_and_never_calls_cloud():
     words = Vocabulary(vocab.SEED)
     p, w, s, llm = make("BABEL, Claude Code, DeepSeek", "稍等，问一下新乔。", vocabulary=lambda: words)
@@ -100,7 +153,7 @@ def test_hotword_leak_uses_corrected_sensevoice_and_never_calls_cloud():
 def test_prompt_only_shares_relevant_terms_from_same_snapshot():
     words = Vocabulary(vocab.SEED)
     p, *_rest, llm = make("我打算重启备播", "把BABEL重启一下。",
-                          FakeLlm(("我打算重启BABEL。", "openai")), vocabulary=lambda: words)
+                          FakeLlm(("把BABEL重启一下。", "openai")), vocabulary=lambda: words)
     assert p.process(AUDIO).path == "llm"
     system_prompt = llm.calls[0][0][0]["content"]
     assert "BABEL(" in system_prompt and "DeepSeek(" not in system_prompt
@@ -109,7 +162,7 @@ def test_prompt_only_shares_relevant_terms_from_same_snapshot():
 def test_disagreement_polishes():
     stages = []
     p, w, s, llm = make("我在Bable项目", "我在babo项目", FakeLlm(("我在BABEL项目。", "openai")),
-                        terms=lambda: "BABEL(项目名)", mode=lambda: "deepseek")
+                        terms=lambda: "BABEL(项目名)", mode=lambda: "deepseek", style=lambda: "formal")
     r = p.process(AUDIO, on_stage=stages.append)
     assert (r.text, r.path, r.provider) == ("我在BABEL项目。", "llm", "openai")
     assert stages == ["polish"]
@@ -185,13 +238,13 @@ def test_all_usable_engines_raising_is_an_error():
         p1.process(AUDIO)
 
 
-def test_agreed_self_correction_goes_to_llm():
+def test_natural_keeps_both_parts_of_self_correction():
     stages = []
     said = "我们约在周三，不对，周四下午两点开会。"
     p, w, s, llm = make("我们约在周三不对周四下午两点开会", said,
                         FakeLlm(("我们约在周四下午两点开会。", "openai")))
     r = p.process(AUDIO, on_stage=stages.append)
-    assert (r.text, r.path, r.provider) == ("我们约在周四下午两点开会。", "llm", "openai")
+    assert (r.text, r.path, r.provider) == (said, "guarded", "openai")
     assert stages == ["polish"] and len(llm.calls) == 1
 
 

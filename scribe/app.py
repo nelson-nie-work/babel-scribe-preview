@@ -27,7 +27,7 @@ from scribe.learning import is_word_selection, suggest_alias
 from scribe.llm import LlmClient
 from scribe.output import (WinClipboard, WinKeys, deliver, foreground_elevated, foreground_window,
                            prepare_modifiers, read_accessible_selection, read_selection, window_application)
-from scribe.paths import installed_launcher, logs_dir, settings_dir, shared_data_dir
+from scribe.paths import cpu_install, installed_launcher, logs_dir, settings_dir, shared_data_dir
 from scribe.pipeline import Pipeline
 from scribe.preview import LivePreview
 from scribe.tray import Tray, format_stats, make_icon
@@ -89,6 +89,10 @@ def main() -> int:
     data_dir = shared_data_dir()
     providers = keys.load_providers(data_dir / "keys.json")
     prefs = settings.load(polish_available=bool(providers))
+    supports_dual = not cpu_install()
+
+    def dual_enabled() -> bool:
+        return supports_dual and prefs["dual_engine"]
     try:
         words = VocabularyStore(data_dir, vocab.load_terms(data_dir))
     except Exception as e:
@@ -108,7 +112,7 @@ def main() -> int:
 
     engine = Pipeline(whisper, sensevoice, llm, mode=lambda: prefs["llm_mode"],
                       log=_file_log, vocabulary=lambda: words.current,
-                      dual=lambda: prefs["dual_engine"], smart=lambda: prefs["smart_polish"],
+                      dual=dual_enabled, smart=lambda: prefs["smart_polish"],
                       style=lambda: prefs["style"], available=model_available)
     clip, win_keys = WinClipboard(int(window.winId())), WinKeys()
     worker = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="scribe-asr")
@@ -129,27 +133,29 @@ def main() -> int:
         if learning or not target:
             return
         ticket = edit_stop = threading.Event()
+        known_terms = tuple(row["term"] for row in words.current.terms)
 
         def target_ok() -> bool:
             return foreground_window() == target
 
-        def show_suggestion(term: str) -> None:
+        def show_suggestion(alias: str, term: str) -> None:
             if ticket.is_set() or learning or not controller.can_learn or not target_ok():
                 return
-            if any(row["term"].casefold() == term.casefold() for row in words.current.terms):
+            if any(row["term"] == term and alias in row.get("aliases", ()) for row in words.current.terms):
                 return
             _file_log("learn: edit suggestion")
 
             def remember() -> None:
                 if not ticket.is_set() and controller.can_learn and target_ok():
-                    save_word(term, "learned")
+                    save_correction(alias, term)
 
-            word_capsule.suggest(term, remember)
+            word_capsule.suggest(alias, term, remember)
 
         def detect() -> None:
-            term = watch_edited_word(target, text, ticket, target_ok, _file_log)
-            if term:
-                post(lambda: show_suggestion(term))
+            pair = watch_edited_word(target, text, ticket, target_ok, _file_log,
+                                     known_terms=known_terms)
+            if pair:
+                post(lambda: show_suggestion(*pair))
 
         edit_worker.submit(detect)
 
@@ -202,6 +208,8 @@ def main() -> int:
         if key == "startup":
             settings.set_startup(bool(value))
             return
+        if key == "dual_engine" and not supports_dual:
+            raise ValueError("双引擎请使用源码版并配置 NVIDIA。")
         old = prefs[key]
         if old == value:
             return
@@ -253,7 +261,7 @@ def main() -> int:
         if vocab_window is None:
             general_page = GeneralPage(lambda: prefs, update_preference,
                                        lambda: [name for name in mic_choices() if name], startup_enabled,
-                                       lambda: controller.can_learn and not learning)
+                                       lambda: controller.can_learn and not learning, supports_dual=supports_dual)
             history_page = HistoryPage(history, copy=clip.set_text, learn=learn_history_word,
                                        typing=use_typing, set_typing=set_typing)
             vocab_window = VocabularyWindow(words, pages={"general": general_page, "history": history_page})
@@ -342,6 +350,36 @@ def main() -> int:
                 learn_notice("撤销未保存，请检查词库文件")
 
         word_capsule.saved(term, undo)
+
+    def save_correction(alias: str, term: str) -> None:
+        try:
+            addition = words.add_alias(alias, term)
+        except ValueError as exc:
+            learn_notice(str(exc))
+            return
+        except (OSError, TypeError, KeyError) as exc:
+            _file_log("vocab save error: %s" % type(exc).__name__)
+            learn_notice("词库保存失败，请检查词库文件")
+            return
+        refresh_vocab_window()
+        if addition is None:
+            word_capsule.notice("这条纠错已在词库")
+            return
+        _file_log("learn: edit correction saved")
+
+        def undo() -> None:
+            try:
+                if words.undo_alias(addition):
+                    refresh_vocab_window()
+                    _file_log("learn: edit correction undone")
+                    word_capsule.notice("已撤销纠错")
+                else:
+                    learn_notice("纠错规则已有其他更改，请在词库中核对")
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                _file_log("vocab undo error: %s" % type(exc).__name__)
+                learn_notice("撤销未保存，请检查词库文件")
+
+        word_capsule.saved(f"{alias} → {term}", undo)
 
     def on_learn() -> None:
         nonlocal learning
@@ -467,7 +505,7 @@ def main() -> int:
             tray.set_status("模型加载失败")
         elif engine.ready:
             key = settings.HOTKEYS[prefs["hotkey"]][0]
-            suffix = "" if prefs["dual_engine"] and whisper.ready and sensevoice.ready else "（单引擎）"
+            suffix = "" if dual_enabled() and whisper.ready and sensevoice.ready else "（单引擎）"
             tray.set_status(f"就绪{suffix} · 按住 {key} 说话")
             if tray.isVisible():
                 _file_log(f"tray ready: {tray.toolTip()}")
@@ -507,7 +545,7 @@ def main() -> int:
         for name, eng in models.items():
             if name in operations:
                 continue
-            if name == "whisper" and not prefs["dual_engine"]:
+            if name == "whisper" and not dual_enabled():
                 if eng.ready:
                     schedule_model(name, "unload")
             elif not eng.ready and not eng.failed:

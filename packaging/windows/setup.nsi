@@ -1,4 +1,4 @@
-Unicode true
+﻿Unicode true
 !include "MUI2.nsh"
 !include "x64.nsh"
 
@@ -10,11 +10,11 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 SetCompressorDictSize 32
 SetOverwrite on
-VIProductVersion "0.1.0.0"
+VIProductVersion "0.1.2.0"
 VIAddVersionKey "ProductName" "BABEL Scribe"
 VIAddVersionKey "FileDescription" "BABEL Scribe CPU Preview Setup"
-VIAddVersionKey "FileVersion" "0.1.0-alpha"
-VIAddVersionKey "ProductVersion" "0.1.0-alpha"
+VIAddVersionKey "FileVersion" "0.1.2-alpha"
+VIAddVersionKey "ProductVersion" "0.1.2-alpha"
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\BABEL Scribe.exe"
@@ -74,7 +74,7 @@ Section "BABEL Scribe" Main
         CreateShortCut "$SMPROGRAMS\BABEL Scribe Preview\BABEL Scribe.lnk" "$INSTDIR\BABEL Scribe.exe"
         WriteRegStr HKCU "Software\BABEL Scribe Preview" "InstallDir" "$INSTDIR"
         WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "DisplayName" "BABEL Scribe Preview"
-        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "DisplayVersion" "0.1.0-alpha"
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "DisplayVersion" "0.1.2-alpha"
         WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
         WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "InstallLocation" "$INSTDIR"
         WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "DisplayIcon" "$INSTDIR\BABEL Scribe.exe"
@@ -108,6 +108,7 @@ Section "Uninstall"
     Delete "$INSTDIR\README.md"
     Delete "$INSTDIR\runtime-inventory.txt"
     Delete "$INSTDIR\nsis-COPYING.txt"
+    RMDir /r "$INSTDIR\third-party"
     Delete "$INSTDIR\scribe-installed.marker"
     Delete "$INSTDIR\media\dictation.gif"
     Delete "$INSTDIR\media\quick-add.gif"

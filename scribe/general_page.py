@@ -127,10 +127,11 @@ class _ShortcutDialog(QDialog):
 class GeneralPage(QScrollArea):
     def __init__(self, prefs: Callable[[], dict], update: Callable[[str, object], None],
                  microphones: Callable[[], list[str]], startup: Callable[[], bool],
-                 can_change_key: Callable[[], bool]):
+                 can_change_key: Callable[[], bool], *, supports_dual: bool = True):
         super().__init__(objectName="mainScroll", widgetResizable=True)
         self.prefs, self.update = prefs, update
         self.microphones, self.startup, self.can_change_key = microphones, startup, can_change_key
+        self.supports_dual = supports_dual
         self.capturing = False
         self.controls = {}
         body = QWidget(objectName="mainScrollContent")
@@ -239,12 +240,19 @@ class GeneralPage(QScrollArea):
         self.key_label.setText(HOTKEYS[prefs["hotkey"]][0])
         self.engine_hint.setText("SenseVoice 与 Whisper 一起识别。" if prefs["dual_engine"]
                                  else "使用 SenseVoice 单引擎识别。")
+        if not self.supports_dual:
+            self.engine_hint.setText("CPU 安装版使用 SenseVoice。双引擎请使用源码版。")
         for key, control in self.controls.items():
             with QSignalBlocker(control):
                 if isinstance(control, QComboBox):
                     control.setCurrentIndex(control.findData(prefs[key]))
                 else:
                     control.setChecked(self.startup() if key == "startup" else prefs[key])
+        dual = self.controls["dual_engine"]
+        if not self.supports_dual:
+            with QSignalBlocker(dual):
+                dual.setChecked(False)
+            dual.setEnabled(False)
         for key in ("style", "llm_mode"):
             self.controls[key].setEnabled(prefs["smart_polish"])
 

@@ -47,3 +47,22 @@ def test_summarize_groups_paths():
     assert s["paths"] == {"fast": 2, "llm": 1, "guarded": 1, "fallback": 1}
     assert s["fast_p50"] == 100 and s["fast_p90"] == 300
     assert s["llm_p50"] == 1100 and s["llm_p90"] == 2600
+
+
+def test_load_vocab_reads_only_given_file(tmp_path):
+    from bench.run_bench import load_vocab
+
+    assert load_vocab(None) == []
+    f = tmp_path / "vocab.json"
+    f.write_text(json.dumps([{"term": "BABEL", "aliases": []}]), encoding="utf-8")
+    assert load_vocab(f) == [{"term": "BABEL", "aliases": []}]
+
+
+def test_summarize_splits_recognition_and_polish_time():
+    rows = [
+        {"path": "single", "ms": 90, "asr_ms": 85, "polish_ms": 0, "cer": None},
+        {"path": "llm", "ms": 1100, "asr_ms": 100, "polish_ms": 990, "cer": None},
+    ]
+    s = summarize(rows)
+    assert s["total_p50"] == 90 and s["total_p90"] == 1100
+    assert s["asr_p90"] == 100 and s["polish_p50"] == 990

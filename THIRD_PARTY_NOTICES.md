@@ -1,6 +1,6 @@
 # BABEL Scribe 第三方许可清单
 
-源码预览包含代码、测试、图标和示例 GIF。Windows CPU 安装包另行准备。当前私有安装候选内含 CPython 3.14.7 嵌入式运行时及 43 个 Python 发行包，实际版本见 [Windows 运行环境清单](packaging/windows/runtime-lock.txt)，安装目录也提供 runtime-inventory.txt。模型权重、CUDA、cuDNN 和显卡驱动由用户从各自上游取得。
+源码预览包含代码、测试、图标和示例 GIF。Windows 安装包另含 CPython 3.14.7 嵌入式运行时及 43 个 Python 发行包，实际版本见 [Windows 运行环境清单](packaging/windows/runtime-lock.txt)，安装目录也提供 runtime-inventory.txt。模型权重和 NVIDIA 运行库不随安装包分发，由程序在用户需要时从上游下载；显卡驱动由用户自行安装。
 
 CPython 嵌入包自带许可在 runtime/LICENSE.txt，Python wheels 自带的许可位于各自的 dist-info 目录，NSIS 许可在 nsis-COPYING.txt。Qt 和 Shiboken 以独立文件动态加载。公开分发安装包前，还需确认 Qt 的 LGPL 义务，以及 PyAV wheel 实际内含 FFmpeg、libx264 和 libx265 等组件的许可、声明和源码提供方式。表格中的 PyPI 许可仅标明 Python 包本身。
 
@@ -9,7 +9,7 @@ CPython 嵌入包自带许可在 runtime/LICENSE.txt，Python wheels 自带的�
 | 模型 | 代码使用的来源及文件 | 许可与处理 |
 | --- | --- | --- |
 | SenseVoice Small INT8 | [sherpa-onnx ONNX 转换](https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17)，下载 `model.int8.onnx` 和 `tokens.txt`，本机合计 239,549,735 字节 | [SenseVoiceSmall 上游](https://huggingface.co/FunAudioLLM/SenseVoiceSmall)列单独模型许可。[维护者说明](https://github.com/QwenAudio/SenseVoice)指向 [FunASR Model Open Source License v1.1](https://github.com/modelscope/FunASR/blob/58830eca4012644aac0c3218c3ccc7d98f003fda/MODEL_LICENSE)，归属和模型名称条款适用。做离线分发前再核当前 ONNX 转换版本及其许可文件。 |
-| Whisper Large V3 Turbo | [faster-whisper 的模型别名](https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/utils.py)指向 Hugging Face 的 `mobiuslabsgmbh/faster-whisper-large-v3-turbo`，目前重定向到 [CTranslate2 转换模型](https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo)，本机文件合计 1,621,665,983 字节 | [OpenAI Whisper 代码和权重](https://github.com/openai/whisper)采用 MIT，所用转换模型页也标注 MIT。按版本留存上游出处和声明。 |
+| Whisper Large V3 Turbo | 程序按固定版本 `0a363e9` 从 Hugging Face 的 `mobiuslabsgmbh/faster-whisper-large-v3-turbo`（目前重定向到 [CTranslate2 转换模型](https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo)）或其镜像下载 5 个文件并核对 SHA-256，合计 1,621,665,983 字节 | [OpenAI Whisper 代码和权重](https://github.com/openai/whisper)采用 MIT，所用转换模型页也标注 MIT。按版本留存上游出处和声明。 |
 
 ## 直接依赖与可选组件
 
@@ -25,7 +25,7 @@ CPython 嵌入包自带许可在 runtime/LICENSE.txt，Python wheels 自带的�
 | OpenAI Python SDK | 可选在线整理服务的客户端 | [Apache-2.0](https://github.com/openai/openai-python/blob/main/LICENSE) |
 | Hugging Face Hub | 模型下载和缓存 | [Apache-2.0](https://github.com/huggingface/huggingface_hub/blob/main/LICENSE) |
 | pytest | 开发与测试 | [MIT](https://github.com/pytest-dev/pytest/blob/main/LICENSE) |
-| NVIDIA CUDA / cuBLAS / NVRTC / cuDNN | 可选的 NVIDIA 双引擎支持 | [CUDA 12.9 EULA 及可再分发文件范围](https://docs.nvidia.com/cuda/archive/12.9.1/pdf/EULA.pdf) · [cuDNN EULA](https://docs.nvidia.com/deeplearning/cudnn/latest/reference/eula.html)。首发由用户取得兼容运行库，后续按确切二进制核对分发条款。 |
+| NVIDIA cuBLAS | 可选的 NVIDIA 双引擎支持 | [CUDA 12.9 EULA 及可再分发文件范围](https://docs.nvidia.com/cuda/archive/12.9.1/pdf/EULA.pdf)。安装包不含。用户开启双引擎时，程序从 PyPI（或其镜像）下载 NVIDIA 官方 wheel `nvidia-cublas-cu12` 12.9.2.10，核对 SHA-256 后只取出其中的 DLL，保存在本机模型缓存。不需要 cuDNN 和 NVRTC。 |
 | PyAV、FFmpeg 与 VAD | faster-whisper 的音频解码与语音活动检测 | [PyAV 上游许可](https://github.com/PyAV-Org/PyAV/blob/main/LICENSE.txt) · [FFmpeg 许可](https://ffmpeg.org/legal.html) · [Silero VAD](https://github.com/snakers4/silero-vad)。发布二进制前按所带 wheel 和资源核对实际声明。 |
 
 发布 Windows 二进制时，优先收录实际用到的 Qt 模块，并保留选用的第三方许可及其要求的声明。Python wheel 自身标注的许可证不一定覆盖它内含的全部组件。下表是识别组件的起点。

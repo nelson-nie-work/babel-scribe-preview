@@ -1,6 +1,6 @@
 # BABEL Scribe 使用指南
 
-[返回项目首页](../README.md) · [从源码启动](#从源码启动) · [数据与在线整理](#数据与在线整理) · [NVIDIA 双引擎](#源码版可选-nvidia-加速)
+[返回项目首页](../README.md) · [从源码启动](#从源码启动) · [数据与在线整理](#数据与在线整理) · [NVIDIA 双引擎](#可选-nvidia-加速)
 
 ## 从源码启动
 
@@ -13,45 +13,51 @@
    .\.venv\Scripts\python.exe -m scribe
    ```
 
-3. 首次启动需联网下载约 240 MB 的 SenseVoice CPU 模型。托盘显示「就绪」后，可在记事本试一句听写。用 `.\.venv\Scripts\pythonw.exe -m scribe` 可以后台启动。模型已下载时，可在启动前设置 `$env:HF_HUB_OFFLINE = '1'`，只从本机缓存加载。
+3. 首次启动需联网下载约 240 MB 的 SenseVoice CPU 模型，托盘提示里显示进度和来源。托盘显示「就绪」后，可在记事本试一句听写。用 `.\.venv\Scripts\pythonw.exe -m scribe` 可以后台启动。模型下载完成后启动不再联网，已有的 Hugging Face 缓存会被直接接管。
 
 ## 数据与在线整理
 
 配置文件请保存在下文所述本机目录，勿提交到 GitHub。
 
 - SenseVoice 和 Whisper 在设备上处理录音。听写历史在本机保留 30 天。
-- 安装版的设置、日志和历史位于 `%LOCALAPPDATA%\BABEL Scribe\User Data`，其下 `data` 文件夹保存 `vocab.json` 和可选的 `keys.json`。默认模型缓存位于 `%LOCALAPPDATA%\BABEL Scribe\Model Cache`。
+- 安装版的设置、日志和历史位于 `%LOCALAPPDATA%\BABEL Scribe\User Data`，其下 `data` 文件夹保存 `vocab.json` 和加密的整理服务配置 `providers.<电脑名>.json`（每台电脑一份，只有本机当前账户能解开）。默认模型缓存位于 `%LOCALAPPDATA%\BABEL Scribe\Model Cache`。
 - 源码版的设置、日志和历史位于 `%APPDATA%\BABEL Scribe`。词库和可选服务配置位于源码目录同级的 `babel-data`。词库首次运行时创建。
-- 使用 GPT 时，在 `keys.json` 的 `openai.api_key` 中配置自己的 OpenAI API 密钥，保存后重启 Scribe。也可在 `deepseek` 或 `glm` 项配置相应服务的 `api_key`。已保存的设置会继续生效。如果此前关闭了「智能整理」，配置服务后可手动开启。在线整理会发送转写文字和本句相关词条，录音留在本机。请求失败时保留本机识别结果。
+- 整理服务在「通用 → 识别与整理 → 整理服务」里添加：选服务商（OpenAI、DeepSeek、智谱、OpenRouter、硅基流动、Ollama 本机，或任何兼容 OpenAI 接口的服务），填 API 密钥，点「测试连接」，保存后立即生效。多个服务按列表顺序使用，前一个失败或超时就换下一个；托盘菜单也可以切换第 1 位。密钥用 Windows 加密保存在本机。旧版的 `keys.json` 会在启动时自动导入。在线整理会发送转写文字和本句相关词条，录音留在本机。请求失败时保留本机识别结果。
 
-## 源码版可选 NVIDIA 加速
+## 可选 NVIDIA 加速
 
-公开的 Windows CPU 安装版使用 SenseVoice。以下 NVIDIA 步骤适用于源码版。
+开启双引擎后，SenseVoice 仍在 CPU 上运行，Whisper Large V3 Turbo 通过 NVIDIA GPU 增加一份识别结果。使用 CPU 听写可以跳过这一节。
 
-源码版开启双引擎后，SenseVoice 仍在 CPU 上运行，Whisper Large V3 Turbo 通过 NVIDIA GPU 增加一份识别结果。使用 CPU 听写可以跳过这一节。首次启用双引擎还会下载约 1.62 GB 的 Whisper 模型，驱动、CUDA 和 cuDNN 占用另计。
+在「通用 → 识别与整理」打开「双引擎识别」，程序会检测显卡（需要 N 卡、4 GB 以上显存和支持 CUDA 12 的驱动），再下载所需文件：NVIDIA 官方的 cuBLAS 运行库约 0.55 GB，Whisper 模型约 1.62 GB，合计约 2.2 GB，解压后约占 2.4 GB，需预留约 4 GB 磁盘空间。开关下方显示两部分的下载进度和来源，可以随时取消，下次从断点继续。下载期间照常用单引擎听写，完成后托盘去掉「单引擎」。不满足条件时开关会弹回，下方写明原因，驱动太旧时提供更新驱动的链接。关闭双引擎后可在同一处删除已下载的文件。
 
-1. 安装支持 CUDA 12 的 NVIDIA 驱动、CUDA 12 的 cuBLAS 运行库和适配 CUDA 12 的 cuDNN 9。使用 [faster-whisper 的 GPU 要求](https://github.com/SYSTRAN/faster-whisper#gpu)及 [NVIDIA 的 Windows cuDNN 安装说明](https://docs.nvidia.com/deeplearning/cudnn/installation/latest/windows.html)选择版本。可以从 [NVIDIA 的 CUDA 12.9 下载页](https://developer.nvidia.com/cuda-12-9-1-download-archive)取得 Windows x64 Toolkit。
-2. 找到实际装有 `cublas64_12.dll`、`cublasLt64_12.dll` 和 `cudnn64_9.dll` 的文件夹。若它们已经在系统的搜索路径中，可以跳过以下命令。否则打开 PowerShell，替换示例目录后运行。
+有合适 N 卡的电脑在第一次听写后会收到一次提示，点通知即可开启。
+
+### 源码版手动准备运行库
+
+已经自己装好 CUDA 12 的源码版用户，程序找到 `cublas64_12.dll` 和 `cublasLt64_12.dll` 后只下载 Whisper 模型。Whisper 只用到 cuBLAS，不需要 cuDNN。
+
+1. 安装支持 CUDA 12 的 NVIDIA 驱动和 CUDA 12 的 cuBLAS 运行库（`pip install nvidia-cublas-cu12` 也可以）。可以从 [NVIDIA 的 CUDA 12.9 下载页](https://developer.nvidia.com/cuda-12-9-1-download-archive)取得 Windows x64 Toolkit。
+2. 找到实际装有 `cublas64_12.dll` 和 `cublasLt64_12.dll` 的文件夹。若它已经在系统的搜索路径中，或是用 pip 装在当前 Python 里，可以跳过以下命令。否则打开 PowerShell，替换示例目录后运行。
 
    ```powershell
    [Environment]::SetEnvironmentVariable(
        'SCRIBE_CUDA_DLL_DIRS',
-       'C:\path\to\CUDA\bin;C:\path\to\cuDNN\bin',
+       'C:\path\to\CUDA\bin',
        'User'
    )
    ```
 
-3. 从托盘退出 Scribe，用下方的源码启动命令重新打开。按「听写模式」开启双引擎，等待 Whisper 下载和加载。
+3. 从托盘退出 Scribe，用上方的源码启动命令重新打开，再打开「双引擎识别」。
 
 ## 听写模式
 
-**默认使用 SenseVoice 单引擎。** 首次设置时，已配置整理服务则默认开启智能整理，优先使用 GPT。还没配置服务时直接出字。双击托盘图标，进入「通用 → 识别与整理」。
+**默认使用 SenseVoice 单引擎。** 还没配置整理服务时直接出字；添加第一个整理服务后自动开启智能整理。双击托盘图标，进入「通用 → 识别与整理」。
 
 | 模式 | 如何切换 |
 | --- | --- |
-| 单引擎直出 | 关闭「智能整理」。源码版也需关闭「双引擎识别」。SenseVoice 在本机识别，词库仍可纠错。 |
-| 单引擎 + 智能整理 | 配置下文的整理服务，开启「智能整理」。源码版需关闭「双引擎识别」。选「GPT」时优先用 OpenAI。此模式无需 NVIDIA。 |
-| 源码版双引擎 + GPT 整理 | 完成上面的 NVIDIA 准备，并配置下文的 OpenAI API 后，打开「双引擎识别」和「智能整理」，将「整理服务」选为「GPT」，「整理程度」选为「自然」，等待托盘就绪。 |
+| 单引擎直出 | 关闭「双引擎识别」和「智能整理」。SenseVoice 在本机识别，词库仍可纠错。 |
+| 单引擎 + 智能整理 | 按下文添加整理服务，关闭「双引擎识别」，开启「智能整理」。此模式无需 NVIDIA。 |
+| 双引擎 + GPT 整理 | 打开「双引擎识别」并等待文件下载完成，把 OpenAI 排在整理服务第 1 位，打开「智能整理」，「整理程度」选为「自然」，等待托盘就绪。 |
 
 双引擎下，SenseVoice 用 CPU、Whisper Large V3 Turbo 用 NVIDIA GPU，两者并行识别。两份识别结果一致且无需整理时直接出字。需要整理时，程序会把转写文字和相关词条交给 GPT，录音留在本机。关闭两个开关即可回到单引擎直出。
 
@@ -76,7 +82,7 @@
 | 打开主界面 | 双击托盘图标 |
 | 为某应用改用逐字输入 | 历史详情「复制」旁的「…」启用，也从同一菜单恢复默认粘贴 |
 
-默认用粘贴输出。如果剪贴板被占用，或其内容无法安全备份，Scribe 会在原输入窗口仍有焦点时改用逐字输入，保留你的剪贴板。这只对当前这句生效。若输入目标已经改变，仍可从历史找回。
+默认用粘贴输出，粘贴后还原原来的剪贴板内容，包括从 Chrome、ChatGPT 等应用复制的网页内容。如果剪贴板被占用，或其内容无法安全备份（例如部分图元文件），Scribe 会在原输入窗口仍有焦点时改用逐字输入，保留你的剪贴板。这只对当前这句生效。若输入目标已经改变，仍可从历史找回。
 
 ## 让个人词库纠正常见错写
 
@@ -86,8 +92,8 @@
 
 - 在线整理在中英混说时可能把英文词翻成中文。需要逐字保留英文时，可以关闭「智能整理」，或试用「只加标点」。
 - 默认中文输入法正在选字时，改完顺手学可能提前识别到拼音。可以跳过提示，选字完成后通过词库手动收录。
-- 剪贴板里是从 Chrome、ChatGPT 等应用复制的内容时，本版会改用逐字输入。中文输入法开着时，Win11 记事本等程序可能出现成串句号或吞字。听写前把输入法切到英文，或从「历史」复制结果。下个版本会在这些情况下改用粘贴并还原剪贴板。
-- 首次下载模型连不上 Hugging Face 时，可设置用户环境变量 `HF_ENDPOINT` 指向镜像（例如 `https://hf-mirror.com`），重启 Scribe 后再下载。命令见[首页安装常见问题](../README.md#安装常见问题)。
+- 剪贴板内容无法安全备份而改用逐字输入时，中文输入法可能截走部分字符。遇到这种情况，先把输入法切到英文再听写，或从「历史」复制结果。
+- 模型下载连不上 Hugging Face 时会自动换到镜像。也可以设置用户环境变量 `HF_ENDPOINT` 手动指定下载源，命令见[首页安装常见问题](../README.md#安装常见问题)。
 
 ## 反馈和开发
 

@@ -8,11 +8,11 @@
 <p align="center"><strong>Hold Right Ctrl to speak. Release it to type at the cursor.</strong><br>
 A Windows voice keyboard for people who think in Mandarin and type in English: dictate a prompt for Codex or Claude Code in Chinese, with file names, function names and product names in English, and Scribe types it where your cursor is.</p>
 <p align="center">
-  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.2-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe">Download for Windows x64</a></strong>
-  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview">Release notes and checksum</a>
+  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.3-alpha-preview/BABEL-Scribe-Setup-x64-0.1.3-alpha.exe">Download for Windows x64</a></strong>
+  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.3-alpha-preview">Release notes and checksum</a>
   · <a href="#help-test-the-preview">Help test the preview</a>
 </p>
-<p align="center"><sub>Free and open source (MIT) · CPU preview, no NVIDIA GPU needed · ~115 MB installer · The app UI is currently Simplified Chinese only</sub></p>
+<p align="center"><sub>Free and open source (MIT) · Runs on CPU, NVIDIA GPU optional · ~120 MB installer · The app UI is currently Simplified Chinese only</sub></p>
 
 ![Hold Right Ctrl to dictate, preview the text in the floating indicator, and release to type at the cursor](media/dictation.gif)
 
@@ -21,13 +21,13 @@ A Windows voice keyboard for people who think in Mandarin and type in English: d
 - **Mixed Mandarin and English in one breath.** SenseVoice recognises both languages in the same sentence, so you can say `把 pipeline.py 里的 retry 改成三次` without switching modes.
 - **Runs on your PC.** Recognition happens on device and works offline after a one-time model download. Audio never leaves your computer.
 - **Learns your words.** Correct a misheard name once and click **Remember**; Scribe fixes the same mistake next time. Add project names, people and jargon to a personal dictionary.
-- **Fast enough to talk to an AI.** On our 26-sentence internal benchmark, text appears about **0.08 s** after you release the key. Optional online cleanup (your own OpenAI, DeepSeek or GLM key) cut the error rate from 17.5% to 11.7% at about 1 s. [Method and numbers](docs/USAGE.md#26-句内部基准).
+- **Fast enough to talk to an AI.** On our 26-sentence internal benchmark, text appears about **0.08 s** after you release the key. Optional online cleanup with your own API key cut the error rate from 17.5% to 11.7% at about 1 s. [Method and numbers](docs/USAGE.md#26-句内部基准).
 - **Nothing to lose.** Every dictation is kept in a local history for 30 days, so text that missed the input field can be copied back.
 
 ## Get started
 
 1. Download and run the installer. To update, quit Scribe from the system tray first, then install over the existing folder.
-2. Open **BABEL Scribe Preview → BABEL Scribe** from the Start menu. The first launch downloads the **~240 MB** SenseVoice model from Hugging Face.
+2. Open **BABEL Scribe Preview → BABEL Scribe** from the Start menu. The first launch downloads the **~240 MB** SenseVoice model; hover over the tray icon to see progress. New installs start with Windows, which you can turn off in **通用 → 后台运行** (General → Background).
 3. When the tray shows **就绪（单引擎）** (Ready, single engine), click into any text field, hold **Right Ctrl**, speak, and release.
 
 | Action | Shortcut |
@@ -43,10 +43,10 @@ A Windows voice keyboard for people who think in Mandarin and type in English: d
 <details>
 <summary><strong>Windows says "Windows protected your PC"</strong></summary>
 
-The preview installer is not code-signed yet, so Microsoft Defender SmartScreen warns about it. Check that the file's SHA-256 matches the [release page](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview), then click **More info → Run anyway**.
+The preview installer is not code-signed yet, so Microsoft Defender SmartScreen warns about it. Check that the file's SHA-256 matches the [release page](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.3-alpha-preview), then click **More info → Run anyway**.
 
 ```powershell
-Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe -Algorithm SHA256
+Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.3-alpha.exe -Algorithm SHA256
 ```
 
 </details>
@@ -54,13 +54,13 @@ Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe -Algorithm SHA256
 <details>
 <summary><strong>The model download is stuck or fails</strong></summary>
 
-The model comes from Hugging Face, which is slow or blocked on some networks, including mainland China. You can point downloads to a mirror such as the community-run [hf-mirror.com](https://hf-mirror.com). Run this once in PowerShell, quit Scribe from the tray, and open it again:
+Scribe downloads the model from Hugging Face and switches to the community-run [hf-mirror.com](https://hf-mirror.com) automatically when Hugging Face can't be reached. An interrupted download resumes where it stopped the next time you open Scribe. To choose the source yourself, run this once in PowerShell, quit Scribe from the tray, and open it again:
 
 ```powershell
 [Environment]::SetEnvironmentVariable('HF_ENDPOINT', 'https://hf-mirror.com', 'User')
 ```
 
-To go back to Hugging Face, run the same command with `$null` in place of the address. The tray shows **加载模型中** (Loading model) while it downloads.
+To go back to the default, run the same command with `$null` in place of the address. Hover over the tray icon to see download progress and the current source.
 
 </details>
 
@@ -125,9 +125,9 @@ Scribe is an early preview, and real-world reports are the most useful thing you
 
 | Mode | What happens |
 | --- | --- |
-| **CPU installer (default)** | SenseVoice-Small runs on your CPU through sherpa-onnx. Works offline after the model download. |
-| **Optional online cleanup** | With your own OpenAI, DeepSeek or GLM key, a language model adds punctuation and fixes clear recognition errors. If its edit drops or changes content, Scribe keeps the local text. |
-| **Dual engine (source only)** | With an NVIDIA GPU, Whisper Large V3 Turbo runs alongside SenseVoice and the two results are reconciled. A separate NVIDIA installer is planned. |
+| **Single engine (default)** | SenseVoice-Small runs on your CPU through sherpa-onnx. Works offline after the model download. |
+| **Optional online cleanup** | Add your own key for OpenAI, DeepSeek, GLM, OpenRouter, SiliconFlow, a local Ollama or any OpenAI-compatible service in settings, and a language model adds punctuation and fixes clear recognition errors. If its edit drops or changes content, Scribe keeps the local text. |
+| **Optional dual engine** | With an NVIDIA GPU (4 GB VRAM or more), turn on **双引擎识别** (Dual engine) in settings. Scribe downloads NVIDIA's cuBLAS runtime and the Whisper model (about 2.2 GB), then runs Whisper Large V3 Turbo alongside SenseVoice and reconciles the two results. |
 
 [Usage guide, settings and benchmarks (Chinese)](docs/USAGE.md) · [Run from source](docs/USAGE.md#从源码启动) · [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)
 
@@ -140,11 +140,11 @@ Scribe is an early preview, and real-world reports are the most useful thing you
 <p align="center"><strong>按住右 Ctrl 说话，松手就把文字打到光标处。</strong><br>
 给习惯用中文思考、用英文写代码的人做的 Windows 语音键盘。给 Codex 或 Claude Code 写 prompt 时，用中文说清楚要改什么，文件名、函数名和产品名照常说英文，松手就出字。</p>
 <p align="center">
-  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.2-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe">下载 Windows x64 安装包</a></strong>
-  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview">发行说明与校验值</a>
+  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.3-alpha-preview/BABEL-Scribe-Setup-x64-0.1.3-alpha.exe">下载 Windows x64 安装包</a></strong>
+  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.3-alpha-preview">发行说明与校验值</a>
   · <a href="#一起测试预览版">一起测试预览版</a>
 </p>
-<p align="center"><sub>免费开源（MIT）· CPU 预览版，无需 NVIDIA 显卡 · 安装包约 115 MB</sub></p>
+<p align="center"><sub>免费开源（MIT）· CPU 即可运行，NVIDIA 显卡可选 · 安装包约 120 MB</sub></p>
 
 ![按住右 Ctrl 听写，胶囊显示预览，松手后文字输入光标处](media/dictation.gif)
 
@@ -153,13 +153,13 @@ Scribe is an early preview, and real-world reports are the most useful thing you
 - **中英混说一口气说完。** SenseVoice 在同一句里识别中文和英文，说「把 pipeline.py 里的 retry 改成三次」不用切换模式。
 - **在你的电脑上识别。** 首次下载模型后可离线听写，录音不离开本机。
 - **会记住你的词。** 听错的名字改一次、点「记住」，下次自动纠正。项目名、人名和行话可以加进个人词库。
-- **够快，适合跟 AI 对话。** 在 26 句内部基准里，松手约 **0.08 秒**出字。配置自己的 OpenAI、DeepSeek 或 GLM 密钥开启在线整理后，错字率从 17.5% 降到 11.7%，约 1 秒出字。[测法与数据](docs/USAGE.md#26-句内部基准)。
+- **够快，适合跟 AI 对话。** 在 26 句内部基准里，松手约 **0.08 秒**出字。配置自己的 API 密钥开启在线整理后，错字率从 17.5% 降到 11.7%，约 1 秒出字。[测法与数据](docs/USAGE.md#26-句内部基准)。
 - **不怕丢字。** 每次听写都在本机历史保留 30 天，没打进输入框的文字可以找回复制。
 
 ## 三步开始听写
 
 1. 下载并运行安装程序。更新时先从托盘退出 Scribe，再覆盖安装到原目录。
-2. 从开始菜单打开 **BABEL Scribe Preview → BABEL Scribe**。首次启动会从 Hugging Face 下载约 **240 MB** 的 SenseVoice 模型。
+2. 从开始菜单打开 **BABEL Scribe Preview → BABEL Scribe**。首次启动会下载约 **240 MB** 的 SenseVoice 模型，鼠标停在托盘图标上可以看进度。新安装默认开机启动，可在「通用 → 后台运行」关闭。
 3. 托盘显示「就绪（单引擎）」后，点进任意输入框，按住 **右 Ctrl** 说话，松手出字。
 
 | 操作 | 用法 |
@@ -175,10 +175,10 @@ Scribe is an early preview, and real-world reports are the most useful thing you
 <details>
 <summary><strong>Windows 提示「Windows 已保护你的电脑」</strong></summary>
 
-预览安装包还没有代码签名，所以 Microsoft Defender SmartScreen 会拦一下。先核对文件的 SHA-256 与[发行页](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview)一致，再点「更多信息 → 仍要运行」。
+预览安装包还没有代码签名，所以 Microsoft Defender SmartScreen 会拦一下。先核对文件的 SHA-256 与[发行页](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.3-alpha-preview)一致，再点「更多信息 → 仍要运行」。
 
 ```powershell
-Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe -Algorithm SHA256
+Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.3-alpha.exe -Algorithm SHA256
 ```
 
 </details>
@@ -186,13 +186,13 @@ Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe -Algorithm SHA256
 <details>
 <summary><strong>模型下载卡住或失败</strong></summary>
 
-模型从 Hugging Face 下载，国内网络常常很慢或连不上。可以改用镜像，例如社区运营的 [hf-mirror.com](https://hf-mirror.com)。在 PowerShell 运行一次下面的命令，从托盘退出 Scribe，再重新打开：
+模型默认从 Hugging Face 下载，连不上时自动换到社区运营的镜像 [hf-mirror.com](https://hf-mirror.com)。下载中断后，下次打开 Scribe 会从断点继续。想自己指定下载源，在 PowerShell 运行一次下面的命令，从托盘退出 Scribe，再重新打开：
 
 ```powershell
 [Environment]::SetEnvironmentVariable('HF_ENDPOINT', 'https://hf-mirror.com', 'User')
 ```
 
-想改回 Hugging Face，把地址换成 `$null` 再运行一次。下载期间托盘显示「加载模型中」。
+想改回默认，把地址换成 `$null` 再运行一次。鼠标停在托盘图标上可以看下载进度和当前来源。
 
 </details>
 
@@ -257,8 +257,8 @@ Scribe 还在早期预览阶段，真实使用中的反馈最有价值。我们�
 
 | 用法 | 文字怎么处理 |
 | --- | --- |
-| **CPU 安装版（默认）** | SenseVoice-Small 通过 sherpa-onnx 在 CPU 上识别，下载模型后可离线使用。 |
-| **可选在线整理** | 配置自己的 OpenAI、DeepSeek 或 GLM 密钥后，由大模型补标点、修正明确的识别错误。整理稿增删或改动内容时，保留本机识别稿。 |
-| **源码版双引擎** | 有 NVIDIA 显卡时，Whisper Large V3 Turbo 与 SenseVoice 并行识别并互相校对。独立的 NVIDIA 安装版尚未发布。 |
+| **单引擎（默认）** | SenseVoice-Small 通过 sherpa-onnx 在 CPU 上识别，下载模型后可离线使用。 |
+| **可选在线整理** | 在设置里添加自己的 OpenAI、DeepSeek、智谱、OpenRouter、硅基流动、Ollama 本机或任何兼容 OpenAI 接口的服务密钥后，由大模型补标点、修正明确的识别错误。整理稿增删或改动内容时，保留本机识别稿。 |
+| **可选双引擎** | 有 NVIDIA 显卡（显存 4 GB 以上）时，在设置里打开「双引擎识别」，程序下载 NVIDIA 的 cuBLAS 运行库和 Whisper 模型（约 2.2 GB），之后 Whisper Large V3 Turbo 与 SenseVoice 并行识别并互相校对。 |
 
 [使用指南、设置与实测口径](docs/USAGE.md) · [从源码运行](docs/USAGE.md#从源码启动) · [MIT 许可证](LICENSE) · [第三方许可](THIRD_PARTY_NOTICES.md)

@@ -37,6 +37,32 @@ def test_load_marks_failed_when_library_missing(monkeypatch):
     assert e.failed and not e.ready
 
 
+def test_whisper_load_refuses_unprepared_model(monkeypatch, tmp_path):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    e = WhisperEngine()
+    with pytest.raises(FileNotFoundError):
+        e.load()
+    assert e.failed and not e.ready
+
+
+def test_whisper_loads_from_model_cache_dir(monkeypatch, tmp_path):
+    import faster_whisper
+
+    from scribe import model_files
+    loaded = []
+    monkeypatch.setattr(model_files, "adopt_legacy", lambda model: 0)
+    monkeypatch.setattr(model_files, "ready", lambda model: True)
+    monkeypatch.setattr(model_files, "model_dir", lambda model: tmp_path / "whisper")
+    monkeypatch.setattr(faster_whisper, "WhisperModel", lambda path, **kw: loaded.append((path, kw)) or object())
+    e = WhisperEngine()
+    e.load()
+    assert e.ready
+    assert loaded == [(str(tmp_path / "whisper"), {"device": "cuda", "compute_type": "int8_float16"})]
+
+
 def test_hotwords_only_forwarded_when_supplied():
     class FakeModel:
         def transcribe(self, audio, **options):

@@ -5,7 +5,53 @@ import numpy as np
 import pytest
 from faster_whisper import decode_audio
 
+from scribe import download, model_files
 from scribe.asr.sensevoice import SenseVoiceEngine
+
+
+def _raise(error):
+    def fn(*args, **kwargs):
+        raise error
+    return fn
+
+
+def test_sensevoice_marks_download_error(monkeypatch):
+    monkeypatch.setattr(model_files, "ensure", _raise(download.DownloadFailed()))
+    e = SenseVoiceEngine()
+    with pytest.raises(download.DownloadFailed):
+        e.load()
+    assert e.failed and not e.ready and e.error == "download"
+
+
+def test_sensevoice_load_error_verifies_files(monkeypatch, tmp_path):
+    import sherpa_onnx
+    verified = []
+    monkeypatch.setattr(model_files, "ensure", lambda model, **kw: tmp_path)
+    monkeypatch.setattr(model_files, "verify", lambda model: verified.append(model) or False)
+    monkeypatch.setattr(sherpa_onnx.OfflineRecognizer, "from_sense_voice", _raise(RuntimeError("bad model")))
+    e = SenseVoiceEngine()
+    with pytest.raises(RuntimeError):
+        e.load()
+    assert e.failed and e.error == "load"
+    assert verified == [model_files.SENSEVOICE]
+
+
+def test_sensevoice_reports_progress_then_clears(monkeypatch, tmp_path):
+    import sherpa_onnx
+    seen = []
+    progress = download.Progress(5, 10, 1.0, "huggingface.co")
+
+    def ensure(model, *, on_progress, cancel=None):
+        on_progress(progress)
+        assert e.progress == progress
+        return tmp_path
+
+    monkeypatch.setattr(model_files, "ensure", ensure)
+    monkeypatch.setattr(sherpa_onnx.OfflineRecognizer, "from_sense_voice", lambda **kw: object())
+    e = SenseVoiceEngine(on_progress=seen.append)
+    e.load()
+    assert seen == [progress]
+    assert e.ready and e.progress is None and e.error == ""
 
 
 @pytest.fixture(scope="module")

@@ -48,11 +48,12 @@ def can_match_pinyin(term: str, other_terms=()) -> bool:
 
 
 def _aliases(terms):
+    """别名 → 正确写法。键统一 casefold: 英文别名不区分大小写(识别常输出小写的 cloud、github)。"""
     replacements = {}
     for entry in terms:
         for alias in entry.get("aliases", []):
             if alias and alias != entry["term"]:
-                replacements.setdefault(alias, entry["term"])
+                replacements.setdefault(alias.casefold(), entry["term"])
     return replacements
 
 
@@ -63,17 +64,19 @@ def _bounded_word(word: str) -> str:
     return prefix + re.escape(word) + suffix
 
 
-def _word_pattern(words):
-    return re.compile("|".join(_bounded_word(word) for word in sorted(words, key=len, reverse=True))) if words else None
+def _word_pattern(words, flags=0):
+    if not words:
+        return None
+    return re.compile("|".join(_bounded_word(word) for word in sorted(words, key=len, reverse=True)), flags)
 
 
 def build_alias_corrector(terms):
     """把已登记的别名一次性改成正确写法，保留标点和空白。"""
     replacements = _aliases(terms)
-    pattern = _word_pattern(replacements)
+    pattern = _word_pattern(replacements, re.IGNORECASE)
     if pattern is None:
         return lambda text: text
-    return lambda text: pattern.sub(lambda match: replacements[match.group()], text)
+    return lambda text: pattern.sub(lambda match: replacements[match.group().casefold()], text)
 
 
 def _rewrite_gaps(text, anchors, replace_gap, replace_anchor=lambda word: word):
@@ -120,7 +123,7 @@ def build_corrector(terms):
 
     lengths = sorted({len(sound) for sound in by_sound}, reverse=True)
     aliases = _aliases(terms)
-    alias_pattern = _word_pattern(aliases)
+    alias_pattern = _word_pattern(aliases, re.IGNORECASE)
     protected = dict.fromkeys(entry["term"] for entry in terms if entry["term"])
     protected.update(dict.fromkeys(sorted(_PROTECTED_WORDS)))
     protected_pattern = _word_pattern(protected)
@@ -141,7 +144,7 @@ def build_corrector(terms):
     def fix_unmatched(text):
         return _rewrite_gaps(text, protected_pattern, fix_homophones)
 
-    return lambda text: _rewrite_gaps(text, alias_pattern, fix_unmatched, aliases.__getitem__)
+    return lambda text: _rewrite_gaps(text, alias_pattern, fix_unmatched, lambda word: aliases[word.casefold()])
 
 
 def _hits(entry):
@@ -160,11 +163,6 @@ def hotword_terms(terms) -> list[str]:
             chosen.append(word)
             size = next_size
     return chosen
-
-
-def hotwords(terms) -> str:
-    """Whisper 的热词参数沿用空格分隔，词内空格保留。"""
-    return " ".join(hotword_terms(terms))
 
 
 def relevant_terms(terms, a: str, b: str) -> list:

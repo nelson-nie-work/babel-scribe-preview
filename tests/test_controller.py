@@ -235,3 +235,28 @@ def test_paste_failure_shows_error():
     c, rec, cap, eng, outs, _ = make(result="failed")
     speak(c, rec)
     assert cap.state == "error" and cap.message == "粘贴失败"
+
+
+def test_live_segments_from_stop_travel_with_their_recording():
+    seen = []
+
+    class LiveEngine(FakeEngine):
+        def process(self, audio, on_stage=lambda s: None, *, live=None):
+            seen.append(live)
+            return Result("好", "single")
+
+    rec, cap, jobs = Recorder(), CapsuleModel(), []
+    sessions = iter(["第一句的小段", "第二句的小段"])
+    c = Controller(rec, LiveEngine([]), lambda text, target: "pasted", cap, clock=lambda: 0.0,
+                   run_async=jobs.append, foreground=lambda: 42, on_stop=lambda: next(sessions))
+    speak(c, rec)
+    speak(c, rec)                  # 第一句还没处理时就录完第二句
+    while jobs:
+        jobs.pop(0)()
+    assert seen == ["第一句的小段", "第二句的小段"]
+
+
+def test_engine_without_live_support_still_works_when_stop_returns_nothing():
+    c, rec, cap, eng, outs, jobs = make(["你好"])
+    speak(c, rec)
+    assert outs == ["你好"] and eng.calls == 1

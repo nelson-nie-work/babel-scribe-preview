@@ -1,19 +1,22 @@
 """启动入口: 单实例 → Qt → 托盘/胶囊 → 麦克风 → 后台加载两个识别引擎 → 全局热键。"""
 import concurrent.futures
 import ctypes
-import os
 import sqlite3
 import sys
 import threading
 import time
+import uuid
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
-from scribe import keys, settings, single_instance, vocab
+from scribe import dual_engine, gpu_check, keys, settings, single_instance, vocab
 from scribe.asr.sensevoice import SenseVoiceEngine
 from scribe.asr.whisper import WhisperEngine
 from scribe.audio import MicStream, Recorder, input_devices
+from scribe.dual_engine import DualEngineSetup, Phase, SetupState
+from scribe.dual_engine_panel import DualEnginePanel
 from scribe.capsule import CapsuleModel, CapsuleWindow
 from scribe.config import APP_USER_MODEL_ID
 from scribe.controller import Controller
@@ -24,13 +27,17 @@ from scribe.history_page import HistoryPage
 from scribe.hotkey import Action, HotkeyListener, HotkeyMachine
 from scribe.learn_dialog import confirm_alias, reveal_learning_dialog
 from scribe.learning import is_word_selection, suggest_alias
-from scribe.llm import LlmClient
+from scribe.llm import LlmClient, ServiceStatus
+from scribe.mic_guard import MicGuard
+from scribe.onboarding import Notices
 from scribe.output import (WinClipboard, WinKeys, deliver, foreground_elevated, foreground_window,
                            prepare_modifiers, read_accessible_selection, read_selection, window_application)
 from scribe.paths import installed_launcher, logs_dir, settings_dir, shared_data_dir
 from scribe.pipeline import Pipeline
+from scribe.polish_services import ServiceList
 from scribe.preview import LivePreview
-from scribe.tray import Tray, format_stats, make_icon
+from scribe.provider_store import ProviderStore, migrate_order, store_path
+from scribe.tray import Tray, format_download, format_gb, format_stats, make_icon
 from scribe.vocab_store import VocabularyStore
 from scribe.vocab_window import VocabularyWindow
 from scribe.word_capsule import WordCapsule
@@ -59,18 +66,46 @@ def _file_log(line: str) -> None:
         pass
 
 
+def load_services(data_dir: Path, prefs: dict, store: ProviderStore) -> tuple:
+    """读加密的服务列表, 导入旧 keys.json 里新出现的服务, 首次按老用户的模式排序。"""
+    entries = store.load()
+    merged = store.import_legacy(entries, Path(data_dir) / "keys.json")
+    if not prefs.get("services_migrated"):
+        merged = migrate_order(merged, prefs.get("llm_mode", "gpt"))
+        prefs = {**prefs, "services_migrated": True}
+    if merged != entries:
+        store.save(merged)
+    return merged, prefs
+
+
+def service_confs(entries: list) -> list:
+    return [conf for conf in (keys.conf_from_entry(e) for e in entries) if conf is not None]
+
+
+def tray_status(*, paused: bool, sensevoice, engine, dual_pref: bool, setup_state: SetupState,
+                whisper_ready: bool, hotkey_label: str) -> tuple[str, str]:
+    """托盘状态与提示细节，按优先级取第一条。"""
+    if paused:
+        return "已释放模型 · 下次听写时加载", ""
+    progress = sensevoice.progress
+    if progress is not None and not sensevoice.ready:
+        return "下载模型 " + format_download(progress), ("来源 " + progress.source if progress.source else "")
+    if sensevoice.failed:
+        return ("模型下载失败 · 点击重试", "") if sensevoice.error == "download" else ("模型加载失败", "")
+    if engine.ready and setup_state.phase is Phase.DOWNLOADING:
+        parts = [p for p in (setup_state.runtime, setup_state.model) if p is not None]
+        total = sum(p.total for p in parts)
+        percent = int(sum(p.done for p in parts) * 100 / total) if total else 0
+        return f"就绪（单引擎）· 下载双引擎 {percent}%", ""
+    if engine.ready:
+        suffix = "" if dual_pref and whisper_ready else "（单引擎）"
+        return f"就绪{suffix} · 按住 {hotkey_label} 说话", ""
+    return "加载模型中…", ""
+
+
 def main() -> int:
     if not single_instance.acquire():
         return 0
-    # 模型默认从 Hugging Face 下载。使用者可在环境中指定其他下载源。
-    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
-    if sys.stderr is None:
-        # pythonw.exe has no stream for the model downloader's progress bars.
-        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-        _file_log("model download progress disabled for no-console launch")
-    if installed_launcher():
-        os.environ.setdefault("HF_HOME", str(settings_dir().parent / "Model Cache"))
-
     if sys.platform == "win32":
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
     app = QApplication(sys.argv)
@@ -87,18 +122,48 @@ def main() -> int:
     # 本机设置、整理服务 key、个人词库;key 永不进日志
     history = HistoryStore(settings_dir() / "history.sqlite")
     data_dir = shared_data_dir()
-    providers = keys.load_providers(data_dir / "keys.json")
-    prefs = settings.load(polish_available=bool(providers))
+    store = ProviderStore(store_path(data_dir))
+    existed = settings.exists()          # 必须在第一次 load/save 之前
+    try:
+        entries, startup_prefs = load_services(data_dir, settings.load(), store)
+    except OSError as e:
+        _file_log("services load error: %s" % type(e).__name__)
+        entries, startup_prefs = store.load(), settings.load()
+    prefs = settings.load(polish_available=bool(service_confs(entries)))
+    if startup_prefs["services_migrated"] and not prefs["services_migrated"]:
+        prefs["services_migrated"] = True
+        try:
+            settings.save(prefs)
+        except OSError as e:
+            _file_log("settings save error: %s" % type(e).__name__)
+    defaulted, enable_startup = settings.first_run_defaults(prefs, installed=installed_launcher() is not None,
+                                                            existed=existed)
+    if enable_startup:
+        try:
+            settings.set_startup(True)
+        except OSError as e:
+            _file_log("startup default error: %s" % type(e).__name__)
+    if defaulted != prefs:
+        prefs = defaulted
+        try:
+            settings.save(prefs)
+        except OSError as e:
+            _file_log("settings save error: %s" % type(e).__name__)
     try:
         words = VocabularyStore(data_dir, vocab.load_terms(data_dir))
     except Exception as e:
         _file_log("vocab load error: %s" % type(e).__name__)
         words = VocabularyStore(data_dir, [])
-    llm = LlmClient(providers)
-    _file_log("llm mode %s, providers %s" % (prefs["llm_mode"], ",".join(sorted(providers)) or "none"))
+    llm = LlmClient(service_confs(entries))
+    _file_log("llm services %d: %s" % (len(llm.providers), ",".join(c.name for c in llm.providers) or "none"))
 
-    whisper, sensevoice = WhisperEngine(), SenseVoiceEngine()
+    whisper = WhisperEngine()
+    sensevoice = SenseVoiceEngine(on_progress=lambda p: post(update_status))
     models = {"sensevoice": sensevoice, "whisper": whisper}
+    setup = DualEngineSetup(on_change=lambda state: post(lambda: on_setup(state)), log=_file_log)
+
+    def dual_active() -> bool:
+        return dual_engine.active(prefs["dual_engine"], setup)
     operations = {}
     model_paused = False
     last_active = time.monotonic()
@@ -106,9 +171,9 @@ def main() -> int:
     def model_available() -> bool:
         return not model_paused and not any(op == "unload" for op in operations.values())
 
-    engine = Pipeline(whisper, sensevoice, llm, mode=lambda: prefs["llm_mode"],
+    engine = Pipeline(whisper, sensevoice, llm,
                       log=_file_log, vocabulary=lambda: words.current,
-                      dual=lambda: prefs["dual_engine"], smart=lambda: prefs["smart_polish"],
+                      dual=dual_active, smart=lambda: prefs["smart_polish"],
                       style=lambda: prefs["style"], available=model_available)
     clip, win_keys = WinClipboard(int(window.winId())), WinKeys()
     worker = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="scribe-asr")
@@ -129,27 +194,29 @@ def main() -> int:
         if learning or not target:
             return
         ticket = edit_stop = threading.Event()
+        known_terms = tuple(row["term"] for row in words.current.terms)
 
         def target_ok() -> bool:
             return foreground_window() == target
 
-        def show_suggestion(term: str) -> None:
+        def show_suggestion(alias: str, term: str) -> None:
             if ticket.is_set() or learning or not controller.can_learn or not target_ok():
                 return
-            if any(row["term"].casefold() == term.casefold() for row in words.current.terms):
+            if any(row["term"] == term and alias in row.get("aliases", ()) for row in words.current.terms):
                 return
             _file_log("learn: edit suggestion")
 
             def remember() -> None:
                 if not ticket.is_set() and controller.can_learn and target_ok():
-                    save_word(term, "learned")
+                    save_correction(alias, term)
 
-            word_capsule.suggest(term, remember)
+            word_capsule.suggest(alias, term, remember)
 
         def detect() -> None:
-            term = watch_edited_word(target, text, ticket, target_ok, _file_log)
-            if term:
-                post(lambda: show_suggestion(term))
+            pair = watch_edited_word(target, text, ticket, target_ok, _file_log,
+                                     known_terms=known_terms)
+            if pair:
+                post(lambda: show_suggestion(*pair))
 
         edit_worker.submit(detect)
 
@@ -163,7 +230,7 @@ def main() -> int:
             ensure_models()
             update_status()
         if prefs["smart_polish"]:
-            threading.Thread(target=llm.prewarm, args=(prefs["llm_mode"],), daemon=True,
+            threading.Thread(target=llm.prewarm, daemon=True,
                              name="scribe-prewarm").start()
         preview.start()
 
@@ -179,6 +246,8 @@ def main() -> int:
         update_preference("typing_apps", sorted(apps))
 
     def save_history(result, app_id: str, elapsed_ms: int, outcome: str) -> None:
+        if outcome != "failed":
+            post(notices.dictated)
         try:
             history.add(result, app_id, elapsed_ms, outcome)
         except sqlite3.Error as exc:
@@ -208,35 +277,167 @@ def main() -> int:
         if key in ("hotkey", "microphone", "dual_engine") and not controller.can_learn:
             raise ValueError("等本次听写结束后再更改。")
         if key == "microphone":
-            change_mic(value)
+            mic_guard.switch(value)
+        if key == "dual_engine":
+            if value:
+                start_dual()
+            else:
+                setup.cancel()
         try:
             updated = {**prefs, key: value}
             settings.save(updated)
         except OSError:
             if key == "microphone":
-                change_mic(old)
+                mic_guard.switch(old)
             raise
+        if key == "smart_polish":
+            updated["polish_user_off"] = not value
+            settings.save(updated)
         prefs = updated
-        if key == "llm_mode":
-            tray.set_mode(value)
-            _file_log("llm mode -> %s" % value)
         if key == "idle_release" and not value:
             model_paused = False
-        if key == "dual_engine" and value:
-            whisper.failed = False
         if key in ("dual_engine", "hotkey", "idle_release"):
             ensure_models()
             update_status()
 
-    def on_mode(mode: str) -> None:
+    def save_pref(key: str, value) -> None:
+        nonlocal prefs
+        prefs = {**prefs, key: value}
         try:
-            update_preference("llm_mode", mode)
+            settings.save(prefs)
         except OSError as e:
             _file_log("settings save error: %s" % type(e).__name__)
-            tray.set_mode(prefs["llm_mode"])
-            tray.showMessage("BABEL Scribe", "整理服务设置未保存")
+
+    def start_dual() -> None:
+        """检测显卡并开始准备双引擎文件；不能开启时抛出原因。"""
+        whisper.failed = False
+        reason = setup.start()
+        if reason:
+            _file_log("dual engine refused: %s" % reason)
+            raise ValueError(gpu_check.REASONS[reason])
+
+    def enable_dual() -> None:
+        """开关之外的入口（重试按钮、点击通知）。"""
+        if prefs["dual_engine"]:
+            start_dual()
+            ensure_models()
+            update_status()
+        else:
+            update_preference("dual_engine", True)
         if general_page is not None:
             general_page.sync()
+
+    def retry_dual() -> None:
+        try:
+            enable_dual()
+        except ValueError:
+            pass                    # 原因由面板显示
+        if general_page is not None:
+            general_page.sync()
+
+    def delete_dual_files() -> None:
+        if "whisper" in operations or whisper.ready:
+            if general_page is not None:
+                general_page._set_status("正在释放 Whisper，请稍后再试。", error=True)
+            return
+        try:
+            setup.remove_files()
+        except RuntimeError:
+            return
+        _file_log("dual engine files removed")
+        if general_page is not None:
+            general_page._set_status("已删除双引擎文件。")
+            general_page.sync()
+
+    last_setup_phase = setup.state.phase
+
+    def on_setup(state: SetupState) -> None:
+        nonlocal last_setup_phase
+        changed = state.phase is not last_setup_phase
+        last_setup_phase = state.phase
+        if state.phase is Phase.FAILED and state.reason == "download" and prefs["dual_engine"]:
+            save_pref("dual_engine", False)
+        if state.phase is Phase.READY:
+            ensure_models()
+        update_status()
+        if general_page is not None:
+            if changed:
+                general_page.sync()
+            else:
+                general_page.sync_dual()     # 下载进度：只刷新面板
+
+    def services() -> list:
+        return [dict(e) for e in entries]
+
+    def services_changed(new_entries: list) -> None:
+        nonlocal entries, prefs
+        before = len(llm.providers)
+        store.save(new_entries)
+        entries = [dict(e) for e in new_entries]
+        llm.set_providers(service_confs(entries))
+        _file_log("llm services %d: %s" % (len(llm.providers), ",".join(c.name for c in llm.providers) or "none"))
+        updated = settings.apply_service_change(prefs, before, len(llm.providers))
+        if updated is not prefs:
+            try:
+                settings.save(updated)
+                prefs = updated
+            except OSError as e:
+                _file_log("settings save error: %s" % type(e).__name__)
+        if llm.providers and prefs["smart_polish"]:
+            threading.Thread(target=llm.prewarm, daemon=True, name="scribe-prewarm").start()
+        if general_page is not None:
+            general_page.sync()
+
+    def save_service(entry_id, values: dict) -> dict:
+        fields = {k: values.get(k, "") for k in ("preset", "name", "base_url", "model", "api_key")}
+        current = [dict(e) for e in entries]
+        if entry_id is None:
+            saved = {"id": uuid.uuid4().hex, **fields}
+            current.append(saved)
+        else:
+            index = next(i for i, e in enumerate(current) if e["id"] == entry_id)
+            saved = {**current[index], **fields}
+            current[index] = saved
+        services_changed(current)
+        return dict(saved)
+
+    def delete_service(entry_id: str) -> None:
+        services_changed([e for e in entries if e["id"] != entry_id])
+
+    def reorder_services(ids: list) -> None:
+        by_id = {e["id"]: e for e in entries}
+        ordered = [by_id[i] for i in ids if i in by_id]
+        services_changed(ordered + [e for e in entries if e["id"] not in ids])
+
+    def test_service(values: dict, done) -> None:
+        missing = keys.missing_field(values)
+        conf = None if missing else keys.conf_from_entry({**values, "id": values.get("id") or "new"})
+        if conf is None:
+            done(ServiceStatus(missing or "missing_field"))
+            return
+
+        saved = next((e for e in entries if e["id"] == values.get("id")), None)
+
+        def run():
+            result = llm.test(conf)
+            if keys.same_connection(values, saved):      # 只有测的就是已保存的配置, 才更新列表里的状态
+                llm.record_status(saved["id"], result)
+            post(lambda: done(result))
+
+        threading.Thread(target=run, daemon=True, name="scribe-test-service").start()
+
+    def service_status(entry_id: str):
+        entry = next((e for e in entries if e["id"] == entry_id), None)
+        missing = keys.missing_field(entry) if entry else None
+        return ServiceStatus(missing) if missing else llm.status(entry_id)
+
+    def on_service(entry_id: str) -> None:
+        """托盘里选了另一个服务: 把它移到第 1 位。"""
+        try:
+            reorder_services([entry_id] + [e["id"] for e in entries if e["id"] != entry_id])
+        except OSError as e:
+            _file_log("services save error: %s" % type(e).__name__)
+            tray.showMessage("BABEL Scribe", "整理服务设置未保存")
 
     vocab_window: VocabularyWindow | None = None
     general_page: GeneralPage | None = None
@@ -251,9 +452,14 @@ def main() -> int:
     def open_main_window() -> None:
         nonlocal vocab_window, general_page, history_page
         if vocab_window is None:
+            service_list = ServiceList(services, save=save_service, delete=delete_service,
+                                       reorder=reorder_services, test=test_service, status=service_status,
+                                       unreadable=lambda: store.unreadable)
+            dual_panel = DualEnginePanel(on_cancel=setup.cancel, on_retry=retry_dual, on_delete=delete_dual_files)
             general_page = GeneralPage(lambda: prefs, update_preference,
                                        lambda: [name for name in mic_choices() if name], startup_enabled,
-                                       lambda: controller.can_learn and not learning)
+                                       lambda: controller.can_learn and not learning, service_list,
+                                       dual_panel=dual_panel, dual_state=lambda: setup.state)
             history_page = HistoryPage(history, copy=clip.set_text, learn=learn_history_word,
                                        typing=use_typing, set_typing=set_typing)
             vocab_window = VocabularyWindow(words, pages={"general": general_page, "history": history_page})
@@ -295,6 +501,13 @@ def main() -> int:
             _file_log("history recent error: %s" % type(exc).__name__)
             return []
 
+    def retry_models() -> None:
+        """托盘单击：模型下载失败后重试。"""
+        if sensevoice.failed and sensevoice.error == "download":
+            sensevoice.failed = False
+            ensure_models()
+            update_status()
+
     def copy_recent(text: str) -> None:
         try:
             clip.set_text(text)
@@ -303,9 +516,62 @@ def main() -> int:
         else:
             tray.showMessage("BABEL Scribe", "已复制最终文字")
 
-    tray = Tray(on_quit=app.quit, on_mode=on_mode, mode=prefs["llm_mode"],
-                stats=lambda: format_stats(llm.recent_ms("openai"), llm.recent_ms("deepseek")),
-                on_main=open_main_window, recent=recent_history, copy_recent=copy_recent)
+    tray = Tray(on_quit=app.quit,
+                services=lambda: [(e["id"], e.get("name") or e.get("preset", "")) for e in entries],
+                on_service=on_service,
+                stats=lambda: format_stats([(c.label, llm.recent_ms(c.id)) for c in llm.providers]),
+                on_main=open_main_window, recent=recent_history, copy_recent=copy_recent,
+                on_click=retry_models)
+    notices = Notices(lambda: prefs, save_pref)
+    last_notice = ""
+    dual_gpu = None
+    dual_ok = False
+    dual_checked = False
+
+    def check_dual_offer() -> None:
+        """第一次就绪后在后台算一次：这台电脑能否开双引擎。"""
+        try:
+            gpu = gpu_check.detect()
+            ok = setup.check() is None and not setup.ready
+        except Exception as exc:
+            _file_log("dual check error: %s" % type(exc).__name__)
+            return
+
+        def apply() -> None:
+            nonlocal dual_gpu, dual_ok
+            dual_gpu, dual_ok = gpu, ok and gpu is not None
+        post(apply)
+
+    def show_notices() -> None:
+        nonlocal last_notice, dual_checked
+        if engine.ready and not dual_checked:
+            dual_checked = True
+            threading.Thread(target=check_dual_offer, daemon=True, name="scribe-dual-check").start()
+        due = notices.due(ready=engine.ready, idle=controller.can_learn and not learning, dual_ok=dual_ok)
+        if due == "ready":
+            key = settings.HOTKEYS[prefs["hotkey"]][0]
+            tray.showMessage("BABEL Scribe", f"BABEL Scribe 已就绪。按住 {key} 说话，松开就出字。")
+        elif due == "dual" and dual_gpu is not None:
+            tray.showMessage("可以开启更准的双引擎",
+                             f"检测到 {dual_gpu.name}（{dual_gpu.vram / 1024 ** 3:.0f} GB）。"
+                             f"双引擎会同时用 Whisper 识别，错字更少。"
+                             f"首次需下载约 {format_gb(setup.download_bytes())}。点此开启。")
+        if due:
+            last_notice = due
+
+    def on_message_clicked() -> None:
+        if last_notice != "dual":
+            return
+        open_main_window()
+        vocab_window.set_page("general")
+        try:
+            enable_dual()
+        except ValueError:
+            pass                    # 原因由面板显示
+        if general_page is not None:
+            general_page.sync()
+
+    tray.messageClicked.connect(on_message_clicked)
 
     learning = False
 
@@ -342,6 +608,36 @@ def main() -> int:
                 learn_notice("撤销未保存，请检查词库文件")
 
         word_capsule.saved(term, undo)
+
+    def save_correction(alias: str, term: str) -> None:
+        try:
+            addition = words.add_alias(alias, term)
+        except ValueError as exc:
+            learn_notice(str(exc))
+            return
+        except (OSError, TypeError, KeyError) as exc:
+            _file_log("vocab save error: %s" % type(exc).__name__)
+            learn_notice("词库保存失败，请检查词库文件")
+            return
+        refresh_vocab_window()
+        if addition is None:
+            word_capsule.notice("这条纠错已在词库")
+            return
+        _file_log("learn: edit correction saved")
+
+        def undo() -> None:
+            try:
+                if words.undo_alias(addition):
+                    refresh_vocab_window()
+                    _file_log("learn: edit correction undone")
+                    word_capsule.notice("已撤销纠错")
+                else:
+                    learn_notice("纠错规则已有其他更改，请在词库中核对")
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                _file_log("vocab undo error: %s" % type(exc).__name__)
+                learn_notice("撤销未保存，请检查词库文件")
+
+        word_capsule.saved(f"{alias} → {term}", undo)
 
     def on_learn() -> None:
         nonlocal learning
@@ -415,64 +711,46 @@ def main() -> int:
         worker.submit(capture)
 
     def on_action(action: Action) -> None:
-        if not learning and (action is Action.START or recorder.recording):
-            controller.handle(action)
+        if learning or not (action is Action.START or recorder.recording):
+            return
+        if action is Action.START and not recorder.recording and not mic_guard.before_record():
+            capsule.error("未检测到麦克风")
+            window.refresh()
+            return
+        controller.handle(action)
 
     def on_level(level: float) -> None:
         if capsule.state == "listening":
             capsule.push_level(level)
 
-    def mic_choices():
+    def mic_choices(refresh: bool = False):
         try:
-            return input_devices()
+            return input_devices(refresh)
         except Exception as exc:
             _file_log("mic list error: %s" % type(exc).__name__)
             return {"": None}
 
-    def change_mic(name: str) -> None:
-        nonlocal mic
-        devices = mic_choices()
-        if name not in devices:
-            raise ValueError("这支麦克风当前不可用，请重新连接或选系统默认。")
-        previous = mic
-        candidate = MicStream(recorder, on_level=on_level, device=devices[name])
-        try:
-            previous.stop()
-            recorder.clear_preroll()
-            candidate.start()
-        except Exception as exc:
-            _file_log("mic change error: %s" % type(exc).__name__)
-            try:
-                previous.start()
-            except Exception as recovery:
-                _file_log("mic restore error: %s" % type(recovery).__name__)
-            raise ValueError("无法启用这支麦克风，请选其他设备。") from exc
-        mic = candidate
+    def open_mic(index):
+        stream = MicStream(recorder, on_level=on_level, device=index)
+        recorder.clear_preroll()
+        stream.start()
+        return stream
 
-    mic = MicStream(recorder, on_level=on_level)
-    if prefs["microphone"]:
-        devices = mic_choices()
-        mic.device = devices.get(prefs["microphone"])
-    try:
-        mic.start()
-    except Exception as e:
-        _file_log("mic error: %r" % (e,))
+    mic_guard = MicGuard(devices=mic_choices, open_stream=open_mic, preferred=lambda: prefs["microphone"],
+                         notify=lambda text: tray.showMessage("BABEL Scribe", text), log=_file_log)
+    if not mic_guard.start():
+        _file_log("mic error: no input device")
         capsule.error("未检测到麦克风")
         window.refresh()
 
     def update_status() -> None:
-        if model_paused:
-            tray.set_status("已释放模型 · 下次听写时加载")
-        elif engine.failed:
-            tray.set_status("模型加载失败")
-        elif engine.ready:
-            key = settings.HOTKEYS[prefs["hotkey"]][0]
-            suffix = "" if prefs["dual_engine"] and whisper.ready and sensevoice.ready else "（单引擎）"
-            tray.set_status(f"就绪{suffix} · 按住 {key} 说话")
-            if tray.isVisible():
-                _file_log(f"tray ready: {tray.toolTip()}")
-        else:
-            tray.set_status("加载模型中…")
+        text, detail = tray_status(paused=model_paused, sensevoice=sensevoice, engine=engine,
+                                   dual_pref=prefs["dual_engine"], setup_state=setup.state,
+                                   whisper_ready=whisper.ready, hotkey_label=settings.HOTKEYS[prefs["hotkey"]][0])
+        previous = tray.toolTip()
+        tray.set_status(text, detail)
+        if text.startswith("就绪") and tray.isVisible() and tray.toolTip() != previous:
+            _file_log(f"tray ready: {tray.toolTip()}")
         controller.tick()
         window.refresh()
 
@@ -496,6 +774,8 @@ def main() -> int:
                     _file_log("%s released" % name)
             except Exception as exc:
                 _file_log("%s %s error: %s" % (name, operation, type(exc).__name__))
+                if name == "whisper" and operation == "load":
+                    post(setup.mark_load_failed)
             finally:
                 post(done)
 
@@ -507,14 +787,20 @@ def main() -> int:
         for name, eng in models.items():
             if name in operations:
                 continue
-            if name == "whisper" and not prefs["dual_engine"]:
+            if name == "whisper" and not dual_active():
                 if eng.ready:
                     schedule_model(name, "unload")
             elif not eng.ready and not eng.failed:
                 schedule_model(name, "load")
 
+    idle_ticks = 0
+
     def check_idle() -> None:
-        nonlocal model_paused, last_active
+        nonlocal model_paused, last_active, idle_ticks
+        idle_ticks += 1
+        show_notices()
+        if idle_ticks % 5 == 0 and controller.can_learn and not learning:
+            mic_guard.idle_check()
         now = time.monotonic()
         if not controller.can_learn:
             last_active = now
@@ -526,6 +812,11 @@ def main() -> int:
                     schedule_model(name, "unload")
             update_status()
 
+    if prefs["dual_engine"] and not setup.ready:
+        reason = setup.start()
+        if reason:
+            _file_log("dual engine preference turned off at startup: %s" % reason)
+            save_pref("dual_engine", False)
     ensure_models()
 
     hotkey = HotkeyListener(HotkeyMachine(), emit=lambda action: post(lambda: on_action(action)),
@@ -548,7 +839,8 @@ def main() -> int:
     stop_edit_watch()
     word_capsule.dismiss()
     hotkey.stop()
-    mic.stop()
+    if mic_guard.stream is not None:
+        mic_guard.stream.stop()
     worker.shutdown(wait=False)
     edit_worker.shutdown(wait=False, cancel_futures=True)
     tray.hide()

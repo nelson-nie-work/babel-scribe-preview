@@ -1,6 +1,7 @@
 import json
 
 from scribe import vocab
+from scribe.vocab_store import Vocabulary
 
 
 def test_vocab_seed_written_when_missing(tmp_path):
@@ -27,7 +28,15 @@ def test_terms_line_format():
 def test_alias_correction_prefers_longer_aliases_and_preserves_word_boundaries():
     correct = vocab.build_alias_corrector(vocab.SEED)
     assert correct("备播的 Cloud Code、Cloud、Deep Seek。") == "BABEL的 Claude Code、Claude、DeepSeek。"
-    assert correct("Bebop、Cloudy、cloud") == "Bebop、Cloudy、cloud"
+    assert correct("Bebop、Cloudy、Cloudflare") == "Bebop、Cloudy、Cloudflare"
+
+
+def test_alias_correction_ignores_case_of_english_aliases():
+    correct = vocab.build_alias_corrector(vocab.SEED + [{"term": "GitHub", "aliases": ["get up", "gith"]}])
+    assert correct("让cloud帮我、CLOUD CODE、deep seek") == "让Claude帮我、Claude Code、DeepSeek"
+    assert correct("提交在get up上，推到Gith") == "提交在GitHub上，推到GitHub"
+    assert correct("备播和心桥") == "BABEL和新桥"
+    assert vocab.build_corrector(vocab.SEED)("让cloud帮我") == "让Claude帮我"
 
 
 def test_alias_correction_does_not_replace_its_own_output():
@@ -77,12 +86,12 @@ def test_hotwords_keep_whole_terms_and_rank_by_hits_with_stable_ties():
         {"term": "最后", "hits": None},
     ]
     assert vocab.hotword_terms(terms) == ["最常用", "次常用", "DEMO TOOLS", "最后"]
-    assert vocab.hotwords(terms) == "最常用 次常用 DEMO TOOLS 最后"
+    assert Vocabulary(terms).hotwords == "最常用 次常用 DEMO TOOLS 最后"
 
     many = [{"term": f"词{i}"} for i in range(20)]
     assert vocab.hotword_terms(many) == [f"词{i}" for i in range(15)]
     long = [{"term": str(i) * 31} for i in range(9)]
-    assert len(vocab.hotwords(long)) == 95
+    assert len(Vocabulary(long).hotwords) == 95
 
 
 def test_relevant_terms_finds_aliases_exact_terms_and_possible_homophones():

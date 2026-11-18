@@ -105,13 +105,20 @@ def deliver(text: str, clip: Clipboard, keys: Keys, foreground_elevated: Callabl
 _CF_UNICODETEXT = 13
 _PLAIN_TEXT_FORMATS = {1, 7, 13, 16}   # CF_TEXT, CF_OEMTEXT, CF_UNICODETEXT, CF_LOCALE
 _RESTORABLE_FORMATS = _PLAIN_TEXT_FORMATS | {8, 15, 17}  # CF_DIB, CF_HDROP, CF_DIBV5
-_RESTORABLE_NAMES = {"PNG", "JFIF", "GIF", "HTML Format", "Rich Text Format", "Preferred DropEffect",
-                     "text/markdown", "application/vnd.oasis.opendocument.text",
-                     "CanUploadToCloudClipboard", "CanIncludeInClipboardHistory",
-                     "ExcludeClipboardContentFromMonitorProcessing"}
+_REGISTERED_FIRST = 0xC000
 _OLE_BOOKKEEPING = {"DataObject", "Ole Private Data"}
 _MAX_SNAPSHOT_BYTES = 128 * 1024 * 1024
 _GMEM_MOVEABLE = 0x0002
+
+
+def restorable_format(fmt: int) -> bool:
+    """能按内存块原样备份再还原的剪贴板格式。
+
+    注册格式(0xC000 起, 如 Chrome/Electron 的私有格式)按约定都是内存块, 全部接受;
+    真不是内存块的会在读取大小时失败, 仍按受保护处理。标准格式只认白名单,
+    位图/图元文件/调色板等 GDI 句柄和应用私有区段无法这样复制。
+    """
+    return fmt in _RESTORABLE_FORMATS or fmt >= _REGISTERED_FIRST
 
 _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 _u32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -225,13 +232,6 @@ class WinClipboard:
             fmt = _u32.EnumClipboardFormats(fmt)
         return False
 
-    def has_non_text(self) -> bool:
-        try:
-            with _Opened():
-                return self._non_text_open()
-        except OSError:
-            return True   # 读不了就当有重要内容, 走逐字输入, 不冒险覆盖
-
     @staticmethod
     def _text_open() -> Optional[str]:
         h = _u32.GetClipboardData(_CF_UNICODETEXT)
@@ -244,10 +244,6 @@ class WinClipboard:
             return ctypes.wstring_at(p)
         finally:
             _k32.GlobalUnlock(h)
-
-    def get_text(self) -> Optional[str]:
-        with _Opened():
-            return self._text_open()
 
     def sequence(self) -> int:
         return _u32.GetClipboardSequenceNumber()
@@ -306,7 +302,7 @@ class WinClipboard:
             if name.value in _OLE_BOOKKEEPING:
                 has_ole_metadata = True
                 continue
-            if fmt not in _RESTORABLE_FORMATS and name.value not in _RESTORABLE_NAMES:
+            if not restorable_format(fmt):
                 raise ClipboardProtected("剪贴板含无法安全还原的格式")
             handle = _u32.GetClipboardData(fmt)
             length = _k32.GlobalSize(handle) if handle else 0

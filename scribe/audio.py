@@ -2,6 +2,7 @@
 import collections
 import math
 import threading
+import time
 from typing import Callable, Optional
 
 import numpy as np
@@ -96,8 +97,15 @@ class MicStream:
         self.on_level = on_level
         self.device = device
         self._stream = None
+        self._last_callback = 0.0
+
+    def healthy(self) -> bool:
+        """流在跑且最近 1 秒内有回调；设备拔掉后回调会停。"""
+        stream = self._stream
+        return stream is not None and bool(stream.active) and time.monotonic() - self._last_callback < 1.0
 
     def _callback(self, indata, frames, t, status):
+        self._last_callback = time.monotonic()
         self.recorder.feed(indata[:, 0].copy())
         if self.on_level:
             self.on_level(self.recorder.level)
@@ -111,6 +119,7 @@ class MicStream:
         except Exception:
             stream.close()
             raise
+        self._last_callback = time.monotonic()
         self._stream = stream
 
     def stop(self) -> None:
@@ -122,8 +131,13 @@ class MicStream:
                 stream.close()
 
 
-def input_devices() -> dict[str, int | None]:
+def input_devices(refresh: bool = False) -> dict[str, int | None]:
+    """refresh=True 时重新初始化 PortAudio 以发现插拔，调用方保证此时没有打开的流。"""
     import sounddevice as sd
+
+    if refresh:
+        sd._terminate()
+        sd._initialize()
 
     apis = sd.query_hostapis()
     devices = {"": None}

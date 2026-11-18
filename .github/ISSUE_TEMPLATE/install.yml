@@ -24,6 +24,6 @@ body:
     id: version
     attributes:
       label: Scribe version and Windows version / Scribe 与 Windows 版本
-      placeholder: 0.1.2-alpha, Windows 11 24H2
+      placeholder: 0.1.3-alpha, Windows 11 24H2
     validations:
       required: true

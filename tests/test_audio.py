@@ -81,3 +81,45 @@ def test_preview_snapshot_excludes_preroll_without_removing_it_from_final_audio(
         r.feed(b)
     np.testing.assert_array_equal(r.snapshot(include_preroll=False), np.concatenate(quiet))
     assert r.end()[0] > 0.05
+
+
+def test_micstream_unhealthy_after_callbacks_stop():
+    import time
+    from types import SimpleNamespace
+
+    from scribe.audio import MicStream
+    m = MicStream(Recorder())
+    assert not m.healthy()
+    m._stream = SimpleNamespace(active=True)
+    m._last_callback = time.monotonic() - 2
+    assert not m.healthy()
+    m._last_callback = time.monotonic()
+    assert m.healthy()
+    m._stream = SimpleNamespace(active=False)
+    assert not m.healthy()
+
+
+def test_callback_marks_stream_alive():
+    import time
+
+    from scribe.audio import MicStream
+    m = MicStream(Recorder())
+    m._last_callback = 0.0
+    m._callback(np.zeros((480, 1), np.float32), 480, None, None)
+    assert time.monotonic() - m._last_callback < 1
+
+
+def test_input_devices_refresh_reinitializes(monkeypatch):
+    import sounddevice as sd
+
+    from scribe.audio import input_devices
+    calls = []
+    monkeypatch.setattr(sd, "_terminate", lambda: calls.append("terminate"))
+    monkeypatch.setattr(sd, "_initialize", lambda: calls.append("initialize"))
+    monkeypatch.setattr(sd, "query_hostapis", lambda: [{"name": "MME"}])
+    monkeypatch.setattr(sd, "query_devices", lambda: [{"name": "Mic", "hostapi": 0, "max_input_channels": 1}])
+    assert input_devices(refresh=True) == {"": None, "Mic (MME)": 0}
+    assert calls == ["terminate", "initialize"]
+    calls.clear()
+    input_devices()
+    assert calls == []

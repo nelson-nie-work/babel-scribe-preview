@@ -16,26 +16,43 @@ def make_icon() -> QIcon:
     return QIcon(str(APP_ICON_PATH))
 
 
-MODES = (("gpt", "整理:GPT"), ("deepseek", "整理:DeepSeek"), ("auto", "整理:自动"))
+
+
+def format_gb(n: int) -> str:
+    return "%.1f GB" % (n / 1024 ** 3)
+
+
+def format_rate(bps: float) -> str:
+    return "%.1f MB/s" % (bps / 1024 ** 2)
+
+
+def format_download(p) -> str:
+    """下载进度，如「38% · 12.0 MB/s」。"""
+    percent = int(p.done * 100 / p.total) if p.total else 0
+    return "%d%% · %s" % (percent, format_rate(p.rate))
 
 
 def _sec(ms: Optional[int]) -> str:
     return "—" if ms is None else "%.2f 秒" % (ms / 1000)
 
 
-def format_stats(gpt_ms: Optional[int], deepseek_ms: Optional[int]) -> str:
-    """最近 10 次两家平均耗时, 如「最近:GPT 0.69 秒 · DeepSeek 0.76 秒」。"""
-    if gpt_ms is None and deepseek_ms is None:
+def format_stats(items: list) -> str:
+    """前两个服务最近 10 次的平均耗时, 如「最近:OpenAI 0.69 秒 · DeepSeek 0.76 秒」。"""
+    items = list(items)[:2]
+    if all(ms is None for _name, ms in items):
         return "最近:—"
-    return "最近:GPT %s · DeepSeek %s" % (_sec(gpt_ms), _sec(deepseek_ms))
+    return "最近:" + " · ".join("%s %s" % (name, _sec(ms)) for name, ms in items)
 
 
 class Tray(QSystemTrayIcon):
-    def __init__(self, on_quit: Callable[[], None], on_mode: Callable[[str], None] = lambda m: None,
-                 mode: str = "gpt", stats: Callable[[], str] = lambda: "最近:—",
+    def __init__(self, on_quit: Callable[[], None],
+                 services: Callable[[], list[tuple[str, str]]] = lambda: [],
+                 on_service: Callable[[str], None] = lambda sid: None,
+                 stats: Callable[[], str] = lambda: "最近:—",
                  *, on_main: Callable[[], None] | None = None,
                  recent: Callable[[], list[tuple[str, str]]] | None = None,
-                 copy_recent: Callable[[str], None] | None = None):
+                 copy_recent: Callable[[str], None] | None = None,
+                 on_click: Callable[[], None] | None = None):
         super().__init__(make_icon())
         self.setToolTip(APP_NAME)
         self._stats = stats
@@ -44,19 +61,19 @@ class Tray(QSystemTrayIcon):
         self._status.setEnabled(False)
         self._menu.addAction(self._status)
         self._menu.addSeparator()
-        group = QActionGroup(self._menu)
-        group.setExclusive(True)
-        self.mode_actions = {}
-        for key, label in MODES:
-            act = QAction(label, self._menu, checkable=True)
-            act.setChecked(key == mode)
-            act.triggered.connect(lambda checked=False, key=key: on_mode(key))
-            group.addAction(act)
-            self._menu.addAction(act)
-            self.mode_actions[key] = act
+        if on_click is not None:
+            self.activated.connect(
+                lambda reason: on_click() if reason == self.ActivationReason.Trigger else None
+            )
+        self._services, self._on_service = services, on_service
+        self.service_actions = {}
+        self._service_group = QActionGroup(self._menu)
+        self._service_group.setExclusive(True)
+        self._service_items = []
         self.stats_action = QAction(stats(), self._menu)
         self.stats_action.setEnabled(False)
         self._menu.addAction(self.stats_action)
+        self._menu.aboutToShow.connect(self._refresh_services)
         self._menu.aboutToShow.connect(self._refresh_stats)
         self._menu.addSeparator()
         if on_main is not None:
@@ -87,15 +104,39 @@ class Tray(QSystemTrayIcon):
         self.setContextMenu(self._menu)
         self.show()
 
+    def _refresh_services(self) -> None:
+        """菜单打开前按当前顺序重建服务项, 勾选第 1 个;选别的就交给 on_service 移到第 1 位。"""
+        for item in self._service_items:
+            self._menu.removeAction(item)
+            self._service_group.removeAction(item)
+        self._service_items, self.service_actions = [], {}
+        try:
+            entries = list(self._services())
+        except Exception:
+            entries = []
+        before = self.stats_action
+        if not entries:
+            empty = QAction("未配置整理服务", self._menu)
+            empty.setEnabled(False)
+            self._menu.insertAction(before, empty)
+            self._service_items.append(empty)
+            return
+        for index, (sid, label) in enumerate(entries):
+            act = QAction("整理:" + label.replace("&", "&&"), self._menu, checkable=True)
+            act.setChecked(index == 0)
+            act.triggered.connect(lambda _checked=False, sid=sid: self._on_service(sid))
+            self._service_group.addAction(act)
+            self._menu.insertAction(before, act)
+            self._service_items.append(act)
+            self.service_actions[sid] = act
+
     def _refresh_stats(self) -> None:
         try:
             self.stats_action.setText(self._stats())
         except Exception:
             self.stats_action.setText("最近:—")
 
-    def set_status(self, text: str) -> None:
+    def set_status(self, text: str, detail: str = "") -> None:
         self._status.setText(text)
-        self.setToolTip("%s · %s" % (APP_NAME, text))
-
-    def set_mode(self, mode: str) -> None:
-        self.mode_actions[mode].setChecked(True)
+        tip = "%s · %s" % (APP_NAME, text)
+        self.setToolTip(tip + (" · " + detail if detail else ""))

@@ -6,8 +6,9 @@ def test_suggestion_grows_immediately_after_a_short_notice(qapp_offscreen):
     pill.notice("已撤销收词")
     width = pill.width()
     pill.dismiss()
-    pill.suggest("青砚桥", lambda: None)
+    pill.suggest("清样桥", "青砚桥", lambda: None)
     try:
+        assert pill._message.text() == "记住「清样桥 → 青砚桥」？"
         assert pill.width() > width
         assert pill._timer.interval() == 11000
         assert pill._message.width() >= pill._message.sizeHint().width()

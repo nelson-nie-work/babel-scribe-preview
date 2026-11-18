@@ -21,5 +21,4 @@ DONE_HIDE_MS = 600
 ERROR_HIDE_MS = 2000
 
 # 识别
-WHISPER_MODEL = "large-v3-turbo"
 WHISPER_COMPUTE = "int8_float16"

@@ -28,7 +28,7 @@ class Controller:
                  log: Callable[[str], None] = lambda line: None,
                  foreground: Callable[[], int] = lambda: 0,
                  on_start: Callable[[], None] = lambda: None,
-                 on_stop: Callable[[], None] = lambda: None,
+                 on_stop: Callable[[], object] = lambda: None,
                  on_output: Callable[[str, int], None] = lambda text, target: None,
                  identify: Callable[[int], str] = lambda target: "",
                  on_record: Callable[[Result, str, int, str], None] = lambda res, app, ms, outcome: None):
@@ -43,11 +43,11 @@ class Controller:
         self.log = log
         self.foreground = foreground        # 松开时记下前台窗口, 输出时不一样就只复制
         self.on_start = on_start            # 录音开始: 预热整理服务 + 启动实时字幕
-        self.on_stop = on_stop              # 录音结束/取消: 停实时字幕
+        self.on_stop = on_stop              # 录音结束/取消: 停实时字幕, 返回录音中已识别的小段(可为 None)
         self.on_output = on_output
         self.identify = identify
         self.on_record = on_record
-        self._queue = collections.deque()   # (audio, 松开时刻, 目标窗口, 目标应用)
+        self._queue = collections.deque()   # (audio, 松开时刻, 目标窗口, 目标应用, 录音中已识别的小段)
         self._busy = False
         self._last_output: Optional[tuple[int, str, float]] = None
 
@@ -64,14 +64,14 @@ class Controller:
             self.recorder.cancel()
             self.capsule.hide()
         elif action is Action.STOP:
-            self.on_stop()
+            live = self.on_stop()
             audio = self.recorder.end()
             if is_silent(audio):
                 self.capsule.hide()
             else:
                 self.capsule.processing()      # 先离开 listening, 否则会被当成"新录音进行中"
                 released, target = self.clock(), self.foreground()
-                self._queue.append((audio, released, target, self.identify(target)))
+                self._queue.append((audio, released, target, self.identify(target), live))
                 self._pump()
         self.on_change()
 
@@ -125,11 +125,11 @@ class Controller:
                 self.on_change()
             return
         self._busy = True
-        audio, t_release, target, app = self._queue.popleft()
+        audio, t_release, target, app, live = self._queue.popleft()
         if not self._listening():
             self.capsule.processing()
             self.on_change()
-        self.run_async(lambda: self._work(audio, t_release, target, app))
+        self.run_async(lambda: self._work(audio, t_release, target, app, live))
 
     def _finish(self, result: str, err: Optional[Exception], path: str, text: str, target: int) -> None:
         self._busy = False
@@ -157,18 +157,19 @@ class Controller:
         self._pump()
 
     # ---- 工作线程
-    def _work(self, audio, t_release: float, target: int, app: str) -> None:
+    def _work(self, audio, t_release: float, target: int, app: str, live=None) -> None:
         result, err, path, text = "empty", None, "", ""
         res = None
         try:
-            res = self.engine.process(audio, on_stage=self._on_stage)
+            extra = {} if live is None else {"live": live}
+            res = self.engine.process(audio, on_stage=self._on_stage, **extra)
             path = res.path
             text = res.text
             t_text = self.clock()
             result = self.output(res.text, target)
-            self.log("%d ms, %.1f s, %s, %d 字, %s, %s" % (
-                (t_text - t_release) * 1000, len(audio) / self.recorder.sr, result, len(res.text),
-                res.path, res.provider or "-"))
+            self.log("%d ms (识别 %d, 整理 %d), %.1f s, %s, %d 字, %s, %s" % (
+                (t_text - t_release) * 1000, res.asr_ms, res.polish_ms, len(audio) / self.recorder.sr,
+                result, len(res.text), res.path, res.provider or "-"))
         except Exception as e:     # 识别或输出出错: 报在胶囊上, 不让整个程序停下
             err = e
             self.log("error: %r" % (e,))

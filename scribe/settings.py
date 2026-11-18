@@ -16,6 +16,8 @@ HOTKEYS = {"right_ctrl": ("右 Ctrl", 0xA3), "left_ctrl": ("左 Ctrl", 0xA2),
 DEFAULTS = {
     "llm_mode": "gpt", "style": "natural", "hotkey": "right_ctrl", "microphone": "",
     "dual_engine": False, "smart_polish": False, "idle_release": False, "typing_apps": [],
+    "polish_user_off": False, "services_migrated": False,
+    "dual_prompted": False, "ready_noticed": False, "startup_defaulted": False,
 }
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
@@ -26,6 +28,22 @@ def _startup_name() -> str:
 
 def _path():
     return settings_dir() / "settings.json"
+
+
+def exists() -> bool:
+    return _path().is_file()
+
+
+def first_run_defaults(prefs: dict, *, installed: bool, existed: bool) -> tuple[dict, bool]:
+    """安装版新用户默认开机启动；已有设置的老用户不改开机启动、不再弹就绪通知。"""
+    if prefs["startup_defaulted"]:
+        return prefs, False
+    changes = {}
+    if installed:
+        changes["startup_defaulted"] = True
+    if existed:
+        changes["ready_noticed"] = True
+    return {**prefs, **changes}, installed and not existed
 
 
 def load(*, polish_available: bool = False) -> dict:
@@ -41,7 +59,8 @@ def load(*, polish_available: bool = False) -> dict:
     for field, choices in (("llm_mode", MODES), ("style", STYLES), ("hotkey", tuple(HOTKEYS))):
         if d[field] not in choices:
             d[field] = DEFAULTS[field]
-    for field in ("dual_engine", "smart_polish", "idle_release"):
+    for field in ("dual_engine", "smart_polish", "idle_release", "polish_user_off", "services_migrated",
+                  "dual_prompted", "ready_noticed", "startup_defaulted"):
         if not isinstance(d[field], bool):
             d[field] = defaults[field]
     if not isinstance(d["microphone"], str):
@@ -50,6 +69,13 @@ def load(*, polish_available: bool = False) -> dict:
     d["typing_apps"] = sorted({app.casefold() for app in apps if isinstance(app, str) and app}) \
         if isinstance(apps, list) else []
     return d
+
+
+def apply_service_change(prefs: dict, before: int, after: int) -> dict:
+    """服务列表从空变为非空时打开智能整理, 除非用户手动关过。"""
+    if before == 0 and after > 0 and not prefs["polish_user_off"] and not prefs["smart_polish"]:
+        return {**prefs, "smart_polish": True}
+    return prefs
 
 
 def save(d: dict) -> None:

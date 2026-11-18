@@ -2,6 +2,7 @@
 import json
 import os
 from queue import Empty, SimpleQueue
+import re
 import subprocess
 import threading
 import time
@@ -14,6 +15,33 @@ from scribe.output import uia_command
 START_GRACE_MS = 30_000
 EDIT_GRACE_MS = 45_000
 MAX_WATCH_MS = 90_000
+
+_HAN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\U00020000-\U000323af]")
+# Some controls expose IME preedit as ordinary document text. Lowercase pinyin
+# can be joined or separated by apostrophes, depending on the input method.
+_PINYIN_SYLLABLE = re.compile(
+    r"(?:zh|ch|sh|[bpmfdtnlgkhjqxrzcsyw])?"
+    r"(?:iang|iong|uang|ueng|ang|eng|ong|iao|ian|ing|uai|uan|"
+    r"ai|ei|ao|ou|an|en|er|ia|ie|iu|in|ua|uo|ui|un|ve|vn|van|üe|ün|üan|[aoeiuvü])"
+)
+_PINYIN_INITIALS = {"b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x",
+                    "zh", "ch", "sh", "r", "z", "c", "s", "y", "w"}
+
+
+def _is_pinyin_preedit(before: str, after: str) -> bool:
+    if not all(_HAN.fullmatch(c) for c in before):
+        return False
+    *complete, last = after.replace("’", "'").split("'")
+    if not all(_PINYIN_SYLLABLE.fullmatch(part) for part in complete):
+        return False
+    end = 0
+    while match := _PINYIN_SYLLABLE.match(last, end):
+        end = match.end()
+    return last[end:] in _PINYIN_INITIALS or (end == len(last) and bool(end or complete))
+
+
+def _is_correction(before: str, after: str) -> bool:
+    return before != after and is_word_selection(after) and not _is_pinyin_preedit(before, after)
 
 _WATCH_EDIT = """
 $ErrorActionPreference = 'Stop'
@@ -95,7 +123,7 @@ while ($watch.ElapsedMilliseconds -lt $deadline) {
         $ranges = $pattern.GetSelection()
         if ($ranges.Length -eq 1) {
             $sample = $ranges[0].GetText(25)
-            if ($sample.Length -ge 2 -and $sample.Length -le 24 -and
+            if ($sample.Length -ge 1 -and $sample.Length -le 24 -and
                 $sample -cne $selected -and $original.Contains($sample)) {
                 $selected = $sample
                 $deadline = [Math]::Min([long]MAX_WATCH_MS, $watch.ElapsedMilliseconds + EDIT_GRACE_MS)
@@ -125,30 +153,48 @@ while ($watch.ElapsedMilliseconds -lt $deadline) {
 """
 
 
-def edited_word(original: str, edited: str, selected_before: str = "") -> str | None:
-    """选中错词后改写时，保留包括未变后缀在内的完整正确词。"""
+def edited_word(original: str, edited: str, selected_before: str = "",
+                *, known_terms: tuple[str, ...] = ()) -> tuple[str, str] | None:
+    """返回完整的错词和正确写法，包括未变的后缀。"""
     if not edited or original == edited:
         return None
-    if selected_before and original.count(selected_before) == 1 and is_word_selection(selected_before):
+    single_han = _HAN.fullmatch(selected_before) is not None
+    if ((single_han or is_word_selection(selected_before))
+            and original.count(selected_before) == 1):
         left, _, right = original.partition(selected_before)
         if edited.startswith(left) and edited.endswith(right) and len(edited) >= len(left) + len(right):
             end = len(edited) - len(right)
             word = edited[len(left):end].strip()
-            if word != selected_before and is_word_selection(word):
-                return word
+            if not single_han and _is_correction(selected_before, word):
+                return selected_before, word
+            if single_han and word != selected_before and _HAN.fullmatch(word):
+                # Only a known full spelling can establish the boundary of a one-character edit.
+                candidates = set()
+                for term in known_terms:
+                    if not is_word_selection(term):
+                        continue
+                    for index, char in enumerate(term):
+                        if (char == word and left.endswith(term[:index])
+                                and right.startswith(term[index + 1:])):
+                            alias = term[:index] + selected_before + term[index + 1:]
+                            candidates.add((alias, term))
+                if len(candidates) == 1:
+                    return candidates.pop()
     # 没看到选区时，只提议有空格分隔的词；连续中文句子不猜词边界。
     old_parts, new_parts = original.split(), edited.split()
     if len(old_parts) == len(new_parts) and len(old_parts) > 1:
         changes = [(a, b) for a, b in zip(old_parts, new_parts) if a != b]
         if len(changes) == 1:
             before, after = (part.strip("，。！？、；：,.!?;:") for part in changes[0])
-            if before != after and is_word_selection(before) and is_word_selection(after):
-                return after
+            if is_word_selection(before) and _is_correction(before, after):
+                return before, after
     return None
 
 
 def watch_edited_word(target: int, original: str, stop: threading.Event,
-                      target_ok: Callable[[], bool], log: Callable[[str], None] = lambda _: None) -> str | None:
+                      target_ok: Callable[[], bool],
+                      log: Callable[[str], None] = lambda _: None,
+                      *, known_terms: tuple[str, ...] = ()) -> tuple[str, str] | None:
     """只有同一窗口、同一编辑控件才返回候选。停录后观察一次，可随时取消。"""
     original = original.replace("\r\n", "\n").replace("\r", "\n")
     if not target or not 2 <= len(original) <= 600 or stop.is_set():
@@ -191,10 +237,11 @@ def watch_edited_word(target: int, original: str, stop: threading.Event,
                                               "outside_dictation"}:
                         log("learn: edit watch " + data["status"])
                         return None
-                    term = edited_word(original, data["edited"], data.get("selected", ""))
-                    if term and not stop.is_set() and target_ok():
-                        return term
-                    if not term and not unmatched:
+                    pair = edited_word(original, data["edited"], data.get("selected", ""),
+                                       known_terms=known_terms)
+                    if pair and not stop.is_set() and target_ok():
+                        return pair
+                    if not pair and not unmatched:
                         log("learn: edit watch no_bounded_word")
                         unmatched = True
             finally:

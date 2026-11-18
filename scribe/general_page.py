@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QStyle, QStyleOptionComboBox, QVBoxLayout, QWidget,
 )
 
+from scribe.dual_engine import Phase
 from scribe.settings import HOTKEYS
 from scribe.vocab_window import _label
 
@@ -127,12 +128,14 @@ class _ShortcutDialog(QDialog):
 class GeneralPage(QScrollArea):
     def __init__(self, prefs: Callable[[], dict], update: Callable[[str, object], None],
                  microphones: Callable[[], list[str]], startup: Callable[[], bool],
-                 can_change_key: Callable[[], bool]):
+                 can_change_key: Callable[[], bool], service_list: QWidget | None = None,
+                 dual_panel: QWidget | None = None, dual_state: Callable[[], object] | None = None):
         super().__init__(objectName="mainScroll", widgetResizable=True)
         self.prefs, self.update = prefs, update
         self.microphones, self.startup, self.can_change_key = microphones, startup, can_change_key
         self.capturing = False
         self.controls = {}
+        self.dual_panel, self.dual_state = dual_panel, dual_state
         body = QWidget(objectName="mainScrollContent")
         self.setWidget(body)
         layout = QVBoxLayout(body)
@@ -152,9 +155,14 @@ class GeneralPage(QScrollArea):
 
         group = self._group(layout, "识别与整理")
         self.engine_hint = self._toggle(group, "dual_engine", "双引擎识别", "SenseVoice 与 Whisper 一起识别。")
+        if dual_panel is not None:
+            group.addWidget(dual_panel)
         self._toggle(group, "smart_polish", "智能整理", "需要整理时发送转写文字和相关词条，录音留在本机。")
         self._combo(group, "style", "整理程度", (("punctuation", "只加标点"), ("natural", "自然"), ("formal", "书面")))
-        self._combo(group, "llm_mode", "整理服务", (("gpt", "GPT"), ("deepseek", "DeepSeek"), ("auto", "自动")))
+        self.service_list = service_list
+        if service_list is not None:
+            self._row(group, "整理服务")
+            group.addWidget(service_list)
 
         group = self._group(layout, "后台运行")
         self._toggle(group, "startup", "开机启动", "登录 Windows 后在托盘启动 Scribe。")
@@ -237,16 +245,28 @@ class GeneralPage(QScrollArea):
     def sync(self):
         prefs = self.prefs()
         self.key_label.setText(HOTKEYS[prefs["hotkey"]][0])
-        self.engine_hint.setText("SenseVoice 与 Whisper 一起识别。" if prefs["dual_engine"]
-                                 else "使用 SenseVoice 单引擎识别。")
+        self.sync_dual()
         for key, control in self.controls.items():
             with QSignalBlocker(control):
                 if isinstance(control, QComboBox):
                     control.setCurrentIndex(control.findData(prefs[key]))
                 else:
                     control.setChecked(self.startup() if key == "startup" else prefs[key])
-        for key in ("style", "llm_mode"):
-            self.controls[key].setEnabled(prefs["smart_polish"])
+        self.controls["style"].setEnabled(prefs["smart_polish"])
+        if self.service_list is not None:
+            self.service_list.refresh()
+
+    def sync_dual(self):
+        """只刷新双引擎说明与面板；下载进度每秒数次调用，不重建其他控件。"""
+        prefs = self.prefs()
+        state = self.dual_state() if self.dual_state is not None else None
+        if state is not None and state.phase is Phase.DOWNLOADING:
+            self.engine_hint.setText("准备中 · 先用单引擎听写")
+        else:
+            self.engine_hint.setText("SenseVoice 与 Whisper 一起识别。" if prefs["dual_engine"]
+                                     else "使用 SenseVoice 单引擎识别。")
+        if self.dual_panel is not None and state is not None:
+            self.dual_panel.show_state(state, enabled=prefs["dual_engine"])
 
     def _set_status(self, message, *, error=False):
         self.status.setText(message)
@@ -257,7 +277,11 @@ class GeneralPage(QScrollArea):
         try:
             self.update(key, value)
         except (OSError, ValueError) as exc:
-            self._set_status(str(exc) if isinstance(exc, ValueError) else "设置未保存，请重试。", error=True)
+            if key == "dual_engine" and isinstance(exc, ValueError):
+                message = "未开启双引擎识别。"      # 原因由面板显示在开关下面
+            else:
+                message = str(exc) if isinstance(exc, ValueError) else "设置未保存，请重试。"
+            self._set_status(message, error=True)
         else:
             if isinstance(value, bool):
                 action = "开启" if value else "关闭"

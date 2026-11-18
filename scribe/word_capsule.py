@@ -68,8 +68,8 @@ class WordCapsule(QWidget):
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.dismiss)
 
-    def suggest(self, term: str, remember: Callable[[], None]) -> None:
-        self._present(f"记住「{term}」？", "记住", remember, suggestion=True)
+    def suggest(self, alias: str, term: str, remember: Callable[[], None]) -> None:
+        self._present(f"记住「{alias} → {term}」？", "记住", remember, suggestion=True)
 
     def saved(self, term: str, undo: Callable[[], None]) -> None:
         self._present(f"已记住「{term}」", "撤销", undo, saved=True)

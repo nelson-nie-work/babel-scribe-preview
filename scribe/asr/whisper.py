@@ -7,31 +7,39 @@ from pathlib import Path
 
 import numpy as np
 
+from scribe import model_files
 from scribe.asr.filters import keep_segment
-from scribe.config import WHISPER_COMPUTE, WHISPER_MODEL
+from scribe.config import WHISPER_COMPUTE
 
 
 _dll_directories = {}
 
 
-def _register_nvidia_dlls() -> None:
-    """把 pip 装的 NVIDIA 运行库(cuBLAS/cuDNN)目录加入 DLL 搜索路径,
-    否则 cuda 模式报 cublas64_12.dll not found。移植自 BABEL。"""
+def search_dirs() -> list[str]:
+    """NVIDIA 运行库 DLL 的搜索目录：本程序下载的运行库优先，其次是 SCRIBE_CUDA_DLL_DIRS、
+    CUDA_PATH 与 pip 装的 nvidia 包。移植自 BABEL。"""
+    from scribe import nvidia_runtime
     bases = [site.getusersitepackages()]
     try:
         bases += site.getsitepackages()
     except Exception:
         pass
     bases.append(str(Path(sys.executable).resolve().parent / "lib"))
-    dirs = [Path(path) for path in os.environ.get("SCRIBE_CUDA_DLL_DIRS", "").split(os.pathsep) if path.strip()]
+    dirs = list(nvidia_runtime.dll_dirs())
+    dirs += [Path(path) for path in os.environ.get("SCRIBE_CUDA_DLL_DIRS", "").split(os.pathsep) if path.strip()]
     if cuda := os.environ.get("CUDA_PATH"):
         dirs.append(Path(cuda) / "bin")
     for base in bases:
         nvidia = Path(base) / "nvidia"
         if nvidia.is_dir():
             dirs.extend(sub / "bin" for sub in nvidia.iterdir())
-    search = [str(path) for path in dirs if path.is_absolute() and path.is_dir()]
-    for directory in dict.fromkeys(search):
+    return list(dict.fromkeys(str(path) for path in dirs if path.is_absolute() and path.is_dir()))
+
+
+def _register_nvidia_dlls() -> None:
+    """把运行库目录加入 DLL 搜索路径，否则 cuda 模式报 cublas64_12.dll not found。"""
+    search = search_dirs()
+    for directory in search:
         if directory not in _dll_directories:
             try:
                 _dll_directories[directory] = os.add_dll_directory(directory)
@@ -43,8 +51,7 @@ def _register_nvidia_dlls() -> None:
 
 
 class WhisperEngine:
-    def __init__(self, model: str = WHISPER_MODEL, compute_type: str = WHISPER_COMPUTE):
-        self.model_name = model
+    def __init__(self, compute_type: str = WHISPER_COMPUTE):
         self.compute_type = compute_type
         self.ready = False
         self.failed = False          # 加载失败后为 True, controller 据此报错并丢弃录音
@@ -55,8 +62,12 @@ class WhisperEngine:
         self.failed = False
         try:
             from faster_whisper import WhisperModel
+            model_files.adopt_legacy(model_files.WHISPER)
+            if not model_files.ready(model_files.WHISPER):
+                raise FileNotFoundError("whisper model not prepared")
             _register_nvidia_dlls()
-            self._model = WhisperModel(self.model_name, device="cuda", compute_type=self.compute_type)
+            self._model = WhisperModel(str(model_files.model_dir(model_files.WHISPER)), device="cuda",
+                                       compute_type=self.compute_type)
         except Exception:
             self.failed = True
             raise

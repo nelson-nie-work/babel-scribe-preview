@@ -30,6 +30,13 @@ def logs_dir() -> Path:
     return d
 
 
+def model_cache_dir() -> Path:
+    """模型与 NVIDIA 运行库缓存：安装版与源码版共用。"""
+    d = Path(os.environ["LOCALAPPDATA"]) / APP_NAME / "Model Cache"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def shared_data_dir() -> Path:
     """本机在线服务配置与个人词库目录：仓库同级的 babel-data。"""
     return settings_dir() / "data" if installed_launcher() else _REPO.parent / "babel-data"

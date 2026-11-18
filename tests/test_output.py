@@ -165,6 +165,10 @@ def test_winclipboard_restores_images_and_only_replaces_safe_ole_clipboard(monke
         finally:
             output._k32.GlobalUnlock(handle)
 
+    def read_text():
+        with output._Opened():
+            return clip._text_open()
+
     try:
         keys = FakeKeys()
         assert deliver("临时文字", clip, keys, lambda: False, sleep=no_sleep) == "pasted"
@@ -176,9 +180,14 @@ def test_winclipboard_restores_images_and_only_replaces_safe_ole_clipboard(monke
         assert read_format(markdown_fmt, 7) == b"# text\0"
         assert read_format(odt_fmt, 5) == b"PK\x03\x04\0"
         keys.calls.clear()
-        set_format(unknown_fmt, clip._allocate(b"original"))
+        set_format(unknown_fmt, clip._allocate(b"original"))      # 如 Chrome 私有格式: 备份后照常粘贴
+        assert deliver("私有格式", clip, keys, lambda: False, sleep=no_sleep) == "pasted"
+        assert read_format(unknown_fmt, 8) == b"original" and keys.calls == ["ctrl_v"]
+        keys.calls.clear()
+        metafile = 14                                              # CF_ENHMETAFILE: GDI 句柄, 无法复制
+        set_format(metafile, clip._allocate(b"EMF"))
         assert deliver("不能覆盖", clip, keys, lambda: False, sleep=no_sleep) == "typed"
-        assert read_format(unknown_fmt, 8) == b"original" and keys.calls == [("type", "不能覆盖")]
+        assert read_format(metafile, 3) == b"EMF" and keys.calls == [("type", "不能覆盖")]
         keys.calls.clear()
 
         empty()
@@ -193,7 +202,7 @@ def test_winclipboard_restores_images_and_only_replaces_safe_ole_clipboard(monke
 
         monkeypatch.setattr(output, "_ole_clipboard_is_empty", copy_during_ole_probe)
         assert deliver("不能覆盖", clip, keys, lambda: False, prepare=lambda typing: not typing) == "clipboard_protected"
-        assert clip.get_text() == "新复制"
+        assert read_text() == "新复制"
 
         empty()
         set_format(ole_fmt, clip._allocate(b"OLE"))
@@ -204,7 +213,7 @@ def test_winclipboard_restores_images_and_only_replaces_safe_ole_clipboard(monke
         clip.set_text("原内容")
         copy_on_close = True
         assert deliver("不能覆盖", clip, keys, lambda: False, sleep=no_sleep) == "typed"
-        assert clip.get_text() == "另一份"
+        assert read_text() == "另一份"
         assert keys.calls == ["ctrl_v", ("type", "不能覆盖")]
     finally:
         empty()
@@ -416,3 +425,13 @@ def test_accessible_selection_runs_windowless_and_checks_focus_again(monkeypatch
     assert output.read_accessible_selection(9, lambda: True) == "青砚桥"
     focus = iter([True, False])
     assert output.read_accessible_selection(9, lambda: next(focus)) is None
+
+
+def test_registered_clipboard_formats_are_backed_up_but_gdi_handles_are_not():
+    from scribe import output
+    assert output.restorable_format(13)           # CF_UNICODETEXT
+    assert output.restorable_format(8)            # CF_DIB
+    assert output.restorable_format(0xC2AC)       # 注册格式, 如 Chromium Web Custom MIME Data Format
+    assert not output.restorable_format(2)        # CF_BITMAP: GDI 句柄
+    assert not output.restorable_format(14)       # CF_ENHMETAFILE
+    assert not output.restorable_format(0x0200)   # 应用私有区段

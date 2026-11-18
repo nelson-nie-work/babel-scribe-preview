@@ -6,35 +6,81 @@
 <p align="center"><strong>English</strong> · <a href="#简体中文">简体中文</a></p>
 
 <p align="center"><strong>Hold Right Ctrl to speak. Release it to type at the cursor.</strong><br>
-Writing a prompt in Codex or Claude Code? Dictate it in Mandarin, mixing in English file and function names as you go. Scribe runs on Windows and includes a personal dictionary and dictation history.</p>
+A Windows voice keyboard for people who think in Mandarin and type in English: dictate a prompt for Codex or Claude Code in Chinese, with file names, function names and product names in English, and Scribe types it where your cursor is.</p>
 <p align="center">
   <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.2-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe">Download for Windows x64</a></strong>
   · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview">Release notes and checksum</a>
-  · <a href="docs/USAGE.md#从源码启动">Run from source (Chinese guide)</a>
+  · <a href="#help-test-the-preview">Help test the preview</a>
 </p>
-<p align="center"><sub>CPU preview · ~115 MB installer · No NVIDIA GPU required · App and demos currently shown in Simplified Chinese</sub></p>
+<p align="center"><sub>Free and open source (MIT) · CPU preview, no NVIDIA GPU needed · ~115 MB installer · The app UI is currently Simplified Chinese only</sub></p>
 
 ![Hold Right Ctrl to dictate, preview the text in the floating indicator, and release to type at the cursor](media/dictation.gif)
 
+## Why Scribe
+
+- **Mixed Mandarin and English in one breath.** SenseVoice recognises both languages in the same sentence, so you can say `把 pipeline.py 里的 retry 改成三次` without switching modes.
+- **Runs on your PC.** Recognition happens on device and works offline after a one-time model download. Audio never leaves your computer.
+- **Learns your words.** Correct a misheard name once and click **Remember**; Scribe fixes the same mistake next time. Add project names, people and jargon to a personal dictionary.
+- **Fast enough to talk to an AI.** On our 26-sentence internal benchmark, text appears about **0.08 s** after you release the key. Optional online cleanup (your own OpenAI, DeepSeek or GLM key) cut the error rate from 17.5% to 11.7% at about 1 s. [Method and numbers](docs/USAGE.md#26-句内部基准).
+- **Nothing to lose.** Every dictation is kept in a local history for 30 days, so text that missed the input field can be copied back.
+
 ## Get started
 
-1. Download and run the installer. If you're updating an existing installation, quit Scribe from the system tray first.
-2. Open **BABEL Scribe Preview → BABEL Scribe** from the Start menu. The first launch downloads the **~240 MB** SenseVoice model.
-3. Once the tray shows **就绪（单引擎）** (Ready, single engine), place the cursor in a text field. Hold **Right Ctrl** while you speak, then release it to insert the text.
+1. Download and run the installer. To update, quit Scribe from the system tray first, then install over the existing folder.
+2. Open **BABEL Scribe Preview → BABEL Scribe** from the Start menu. The first launch downloads the **~240 MB** SenseVoice model from Hugging Face.
+3. When the tray shows **就绪（单引擎）** (Ready, single engine), click into any text field, hold **Right Ctrl**, speak, and release.
 
-Dictation works offline once the model has downloaded. The preview installer is unsigned. You can check its SHA-256 checksum on the [release page](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview).
+| Action | Shortcut |
+| --- | --- |
+| Dictate | Hold Right Ctrl, release to type |
+| Hands-free | Double-tap Right Ctrl to start, press once to stop |
+| Cancel recording | Esc |
+| Add selected word to the dictionary | Right Ctrl + L |
+| Open settings, dictionary and history | Double-click the tray icon |
+
+## Installation FAQ
+
+<details>
+<summary><strong>Windows says "Windows protected your PC"</strong></summary>
+
+The preview installer is not code-signed yet, so Microsoft Defender SmartScreen warns about it. Check that the file's SHA-256 matches the [release page](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview), then click **More info → Run anyway**.
+
+```powershell
+Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe -Algorithm SHA256
+```
+
+</details>
+
+<details>
+<summary><strong>The model download is stuck or fails</strong></summary>
+
+The model comes from Hugging Face, which is slow or blocked on some networks, including mainland China. You can point downloads to a mirror such as the community-run [hf-mirror.com](https://hf-mirror.com). Run this once in PowerShell, quit Scribe from the tray, and open it again:
+
+```powershell
+[Environment]::SetEnvironmentVariable('HF_ENDPOINT', 'https://hf-mirror.com', 'User')
+```
+
+To go back to Hugging Face, run the same command with `$null` in place of the address. The tray shows **加载模型中** (Loading model) while it downloads.
+
+</details>
+
+<details>
+<summary><strong>Text comes out garbled when typed into Notepad</strong></summary>
+
+Scribe normally pastes and then restores your clipboard. If the clipboard holds content it cannot safely restore, it types the text character by character instead, and a Chinese IME (such as Microsoft Pinyin) can intercept those keystrokes. Switch the IME to English mode before dictating, or copy the result from **历史** (History). The next release pastes in far more of these cases.
+
+</details>
+
+<details>
+<summary><strong>Where is my data?</strong></summary>
+
+Settings, history and your dictionary live in `%LOCALAPPDATA%\BABEL Scribe\User Data`; the model cache is in `%LOCALAPPDATA%\BABEL Scribe\Model Cache`. Uninstalling keeps both. Online cleanup is off until you add your own API key; when on, it sends the transcript and relevant dictionary entries, never audio. Details in the [usage guide](docs/USAGE.md#数据与在线整理).
+
+</details>
 
 ## Personal dictionary and history
 
-Select a correctly spelled term and press **Right Ctrl + L** to save it. You can also add common misrecognitions for names, companies, and projects in the dictionary. Double-click the tray icon and open **历史** (History) to find a previous result or recover text that didn't reach the input field.
-
-### Correct a whole phrase
-
-1. Double-click the Scribe tray icon and open **词库** (Dictionary).
-2. Open the `Claude Code` entry, or add one with `Claude Code` as **正确写法** (Correct spelling). In **常被听成** (Often heard as), enter the whole misrecognition `Cloud Code`, then click **保存** (Save). Use **历史 → 查看原始识别** (History → View raw recognition) to check the exact spelling and capitalization.
-3. To keep `cloud` in phrases like `cloud sync`, check the separate `Claude` entry. If `Cloud` or `cloud` appears there as a standalone misrecognition, remove it and save.
-
-The phrase rule also works in offline dictation.
+Select a correctly spelled term and press **Right Ctrl + L** to save it. When a name keeps being misheard, open **词库** (Dictionary) and add the exact misrecognition under **常被听成** (Often heard as), for example `Cloud Code` → `Claude Code`. Use **历史 → 查看原始识别** (History → View raw recognition) to see what was actually heard. [More dictionary tips](docs/USAGE.md#让个人词库纠正常见错写).
 
 <details>
 <summary><strong>Quick add</strong> · Select a term and press Right Ctrl + L</summary>
@@ -64,15 +110,26 @@ The phrase rule also works in offline dictation.
 
 </details>
 
-## Local recognition and optional online cleanup
+## Help test the preview
 
-| Mode | How it works |
+Scribe is an early preview, and real-world reports are the most useful thing you can give it. We especially want to hear:
+
+- **Recognition misses:** what you said, what Scribe typed, and the raw recognition from History. Use a sample sentence instead of anything private.
+- **Apps where text doesn't arrive** or arrives garbled, with the app name and your input method.
+- **Long dictation:** does a 30–90 second passage come out complete?
+- **Install problems:** SmartScreen, model download, antivirus or startup issues.
+
+[Open an issue](https://github.com/nelson-nie-work/babel-scribe-preview/issues/new/choose) — the templates ask for the details we need. Want to work on the code? Read [CONTRIBUTING](CONTRIBUTING.md). Changes are listed in the [CHANGELOG](CHANGELOG.md).
+
+## How it works
+
+| Mode | What happens |
 | --- | --- |
-| **CPU installer** | SenseVoice runs on your device. Dictation works offline after the initial model download. |
-| **Optional online cleanup** | Connect a supported service, such as OpenAI, to clean up dictated text. When online cleanup is used, Scribe sends the transcript and relevant dictionary entries. Audio stays on your device. |
-| **Dual-engine mode from source** | An NVIDIA GPU can run Whisper alongside SenseVoice. A separate NVIDIA installer is planned. |
+| **CPU installer (default)** | SenseVoice-Small runs on your CPU through sherpa-onnx. Works offline after the model download. |
+| **Optional online cleanup** | With your own OpenAI, DeepSeek or GLM key, a language model adds punctuation and fixes clear recognition errors. If its edit drops or changes content, Scribe keeps the local text. |
+| **Dual engine (source only)** | With an NVIDIA GPU, Whisper Large V3 Turbo runs alongside SenseVoice and the two results are reconciled. A separate NVIDIA installer is planned. |
 
-[Shortcuts, settings, known issues, and benchmarks (Chinese guide)](docs/USAGE.md) · [Report an issue](https://github.com/nelson-nie-work/babel-scribe-preview/issues) · [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+[Usage guide, settings and benchmarks (Chinese)](docs/USAGE.md) · [Run from source](docs/USAGE.md#从源码启动) · [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 ---
 
@@ -81,35 +138,81 @@ The phrase rule also works in offline dictation.
 [Back to English](#babel-scribe)
 
 <p align="center"><strong>按住右 Ctrl 说话，松手就把文字打到光标处。</strong><br>
-用 Codex 或 Claude Code 时，按住右 Ctrl，用中文说清楚要改什么，夹着英文文件名和函数名，松手就出字。Scribe 在 Windows 本机识别，带个人词库和听写历史。</p>
+给习惯用中文思考、用英文写代码的人做的 Windows 语音键盘。给 Codex 或 Claude Code 写 prompt 时，用中文说清楚要改什么，文件名、函数名和产品名照常说英文，松手就出字。</p>
 <p align="center">
   <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.2-alpha-cpu-preview/BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe">下载 Windows x64 安装包</a></strong>
   · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview">发行说明与校验值</a>
-  · <a href="docs/USAGE.md#从源码启动">从源码运行</a>
+  · <a href="#一起测试预览版">一起测试预览版</a>
 </p>
-<p align="center"><sub>CPU 预览版 · 安装包约 115 MB · 无需 NVIDIA 显卡</sub></p>
+<p align="center"><sub>免费开源（MIT）· CPU 预览版，无需 NVIDIA 显卡 · 安装包约 115 MB</sub></p>
 
 ![按住右 Ctrl 听写，胶囊显示预览，松手后文字输入光标处](media/dictation.gif)
 
+## 为什么用 Scribe
+
+- **中英混说一口气说完。** SenseVoice 在同一句里识别中文和英文，说「把 pipeline.py 里的 retry 改成三次」不用切换模式。
+- **在你的电脑上识别。** 首次下载模型后可离线听写，录音不离开本机。
+- **会记住你的词。** 听错的名字改一次、点「记住」，下次自动纠正。项目名、人名和行话可以加进个人词库。
+- **够快，适合跟 AI 对话。** 在 26 句内部基准里，松手约 **0.08 秒**出字。配置自己的 OpenAI、DeepSeek 或 GLM 密钥开启在线整理后，错字率从 17.5% 降到 11.7%，约 1 秒出字。[测法与数据](docs/USAGE.md#26-句内部基准)。
+- **不怕丢字。** 每次听写都在本机历史保留 30 天，没打进输入框的文字可以找回复制。
+
 ## 三步开始听写
 
-1. 下载并运行安装程序。更新已有版本前，先从托盘退出 Scribe。
-2. 从开始菜单打开 **BABEL Scribe Preview → BABEL Scribe**。首次启动会下载约 **240 MB** 的 SenseVoice 模型。
-3. 托盘显示「就绪（单引擎）」后，把光标放进任意常用输入框，按住 **右 Ctrl** 说话，松手出字。
+1. 下载并运行安装程序。更新时先从托盘退出 Scribe，再覆盖安装到原目录。
+2. 从开始菜单打开 **BABEL Scribe Preview → BABEL Scribe**。首次启动会从 Hugging Face 下载约 **240 MB** 的 SenseVoice 模型。
+3. 托盘显示「就绪（单引擎）」后，点进任意输入框，按住 **右 Ctrl** 说话，松手出字。
 
-模型下载完成后，听写可以离线使用。预览安装包未签名，可在[发行页](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview)核对 SHA-256。
+| 操作 | 用法 |
+| --- | --- |
+| 听写 | 按住右 Ctrl，松手出字 |
+| 免手持 | 双击右 Ctrl 开始，再按一次结束 |
+| 取消录音 | Esc |
+| 收词 | 选中正确词，按右 Ctrl + L |
+| 打开设置、词库和历史 | 双击托盘图标 |
+
+## 安装常见问题
+
+<details>
+<summary><strong>Windows 提示「Windows 已保护你的电脑」</strong></summary>
+
+预览安装包还没有代码签名，所以 Microsoft Defender SmartScreen 会拦一下。先核对文件的 SHA-256 与[发行页](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.2-alpha-cpu-preview)一致，再点「更多信息 → 仍要运行」。
+
+```powershell
+Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.2-alpha-cpu.exe -Algorithm SHA256
+```
+
+</details>
+
+<details>
+<summary><strong>模型下载卡住或失败</strong></summary>
+
+模型从 Hugging Face 下载，国内网络常常很慢或连不上。可以改用镜像，例如社区运营的 [hf-mirror.com](https://hf-mirror.com)。在 PowerShell 运行一次下面的命令，从托盘退出 Scribe，再重新打开：
+
+```powershell
+[Environment]::SetEnvironmentVariable('HF_ENDPOINT', 'https://hf-mirror.com', 'User')
+```
+
+想改回 Hugging Face，把地址换成 `$null` 再运行一次。下载期间托盘显示「加载模型中」。
+
+</details>
+
+<details>
+<summary><strong>在记事本里出现乱码或成串句号</strong></summary>
+
+Scribe 默认粘贴，粘贴后还原剪贴板。剪贴板内容无法安全还原时，会改成逐字输入，这时微软拼音等中文输入法可能截走按键。听写前把输入法切到英文，或者到「历史」里复制结果。下个版本会在绝大多数这类情况下改用粘贴。
+
+</details>
+
+<details>
+<summary><strong>我的数据在哪里？</strong></summary>
+
+设置、历史和词库在 `%LOCALAPPDATA%\BABEL Scribe\User Data`，模型缓存在 `%LOCALAPPDATA%\BABEL Scribe\Model Cache`，卸载时都会保留。在线整理要自己配置密钥才会开启；开启后只发送转写文字和相关词条，不发送录音。详见[使用指南](docs/USAGE.md#数据与在线整理)。
+
+</details>
 
 ## 词库与历史
 
-选中的正确写法可以用 **右 Ctrl + L** 收进词库。常被听错的人名、公司名和项目名，可以在词库里登记常见错写。漏粘贴或想找回上一句时，双击托盘图标打开「历史」。
-
-### 按完整词组纠错
-
-1. 双击 Scribe 托盘图标，打开「词库」。
-2. 找到 `Claude Code` 词条，或添加一个词条并将「正确写法」填为 `Claude Code`。在右侧「常被听成」里填完整错写 `Cloud Code`，点「保存」。可以到「历史 → 查看原始识别」核对实际写法和大小写。
-3. 如果你也常说 `cloud sync`，检查单独的 `Claude` 词条。若「常被听成」里有单独的 `Cloud` 或 `cloud`，删除对应项并保存。
-
-这条词组规则在离线听写时也会生效。
+选中正确写法，按 **右 Ctrl + L** 收进词库。某个名字反复听错时，打开「词库」，在「常被听成」里登记实际错写，例如 `Cloud Code` → `Claude Code`。到「历史 → 查看原始识别」可以看到实际识别出的写法。[更多词库用法](docs/USAGE.md#让个人词库纠正常见错写)。
 
 <details>
 <summary><strong>选词即收</strong> · 选中正确写法，按右 Ctrl + L</summary>
@@ -139,12 +242,23 @@ The phrase rule also works in offline dictation.
 
 </details>
 
-## 本机识别与在线整理
+## 一起测试预览版
+
+Scribe 还在早期预览阶段，真实使用中的反馈最有价值。我们特别想知道：
+
+- **识别错误：** 你说了什么、Scribe 打出了什么，以及历史里的原始识别。请用示例句，不要贴私人内容。
+- **文字没进去或出现乱码的应用：** 应用名称和你用的输入法。
+- **长段听写：** 一口气说 30 到 90 秒，内容是否完整。
+- **安装问题：** SmartScreen、模型下载、杀毒软件拦截或启动失败。
+
+[提交问题](https://github.com/nelson-nie-work/babel-scribe-preview/issues/new/choose)，模板会列出需要的信息。想参与代码，请看 [CONTRIBUTING](CONTRIBUTING.md)。版本变化见 [CHANGELOG](CHANGELOG.md)。
+
+## 工作方式
 
 | 用法 | 文字怎么处理 |
 | --- | --- |
-| **CPU 安装版** | SenseVoice 在本机识别。模型下载后可离线直出。 |
-| **可选在线整理** | 配置服务后，可让 OpenAI 等模型整理文字。只在使用在线整理时发送转写文字和相关词条，录音留在本机。 |
-| **源码版双引擎** | 配置 NVIDIA 后，可以加用 Whisper。独立的 NVIDIA 安装版尚未发布。 |
+| **CPU 安装版（默认）** | SenseVoice-Small 通过 sherpa-onnx 在 CPU 上识别，下载模型后可离线使用。 |
+| **可选在线整理** | 配置自己的 OpenAI、DeepSeek 或 GLM 密钥后，由大模型补标点、修正明确的识别错误。整理稿增删或改动内容时，保留本机识别稿。 |
+| **源码版双引擎** | 有 NVIDIA 显卡时，Whisper Large V3 Turbo 与 SenseVoice 并行识别并互相校对。独立的 NVIDIA 安装版尚未发布。 |
 
-[快捷键、设置、已知问题与实测口径](docs/USAGE.md) · [提交问题](https://github.com/nelson-nie-work/babel-scribe-preview/issues) · [MIT 许可证](LICENSE) · [第三方许可](THIRD_PARTY_NOTICES.md)
+[使用指南、设置与实测口径](docs/USAGE.md) · [从源码运行](docs/USAGE.md#从源码启动) · [MIT 许可证](LICENSE) · [第三方许可](THIRD_PARTY_NOTICES.md)

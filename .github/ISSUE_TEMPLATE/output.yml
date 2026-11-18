@@ -1,0 +1,37 @@
+name: Text didn't arrive or arrived garbled / 文字没进去或乱码
+description: Dictation finished but the text in the target app is missing, duplicated or garbled. 听写完成，但目标应用里缺字、重复或乱码。
+labels: ["output"]
+body:
+  - type: input
+    id: app
+    attributes:
+      label: Target app / 目标应用
+      placeholder: Notepad, ChatGPT desktop, VS Code, Chrome…
+    validations:
+      required: true
+  - type: input
+    id: ime
+    attributes:
+      label: Input method and its mode / 输入法及中英状态
+      placeholder: Microsoft Pinyin, Chinese mode / 微软拼音，中文模式
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened / 实际情况
+      description: Compare the text in the app with History. 对照应用里的文字和「历史」里的结果。
+    validations:
+      required: true
+  - type: textarea
+    id: clipboard
+    attributes:
+      label: What was on the clipboard before? / 听写前剪贴板里是什么
+      placeholder: Text copied from Chrome / an image / empty
+  - type: input
+    id: version
+    attributes:
+      label: Scribe version and Windows version / Scribe 与 Windows 版本
+      placeholder: 0.1.2-alpha, Windows 11 24H2
+    validations:
+      required: true

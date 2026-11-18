@@ -1,0 +1,29 @@
+name: Install or startup problem / 安装或启动问题
+description: Installer, SmartScreen, model download or startup failures. 安装、SmartScreen、模型下载或启动失败。
+labels: ["install"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened / 发生了什么
+      description: Include the tray status text and any error message. 写上托盘状态文字和错误提示。
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log excerpt / 日志片段
+      description: "%LOCALAPPDATA%\BABEL Scribe\User Data\logs\scribe.log — remove keys, account names and personal paths. 请删去密钥、账号和个人路径。"
+      render: text
+  - type: input
+    id: network
+    attributes:
+      label: Region or network / 网络环境
+      placeholder: Mainland China, using HF_ENDPOINT mirror / 中国大陆，已设置镜像
+  - type: input
+    id: version
+    attributes:
+      label: Scribe version and Windows version / Scribe 与 Windows 版本
+      placeholder: 0.1.2-alpha, Windows 11 24H2
+    validations:
+      required: true

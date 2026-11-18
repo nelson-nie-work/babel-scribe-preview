@@ -1,0 +1,48 @@
+name: Recognition miss / 识别错误
+description: Scribe typed something different from what you said. 打出来的字和你说的不一样。
+labels: ["recognition"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please use a sample sentence, not private dictation. 请用示例句，不要贴私人听写内容。
+  - type: textarea
+    id: said
+    attributes:
+      label: What you said / 你说的话
+      placeholder: 把 pipeline.py 里的 retry 改成三次
+    validations:
+      required: true
+  - type: textarea
+    id: typed
+    attributes:
+      label: What Scribe typed / Scribe 打出的文字
+    validations:
+      required: true
+  - type: textarea
+    id: raw
+    attributes:
+      label: Raw recognition / 原始识别
+      description: Tray icon → 历史 (History) → 查看原始识别 (View raw recognition).
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode / 模式
+      options:
+        - Single engine, no cleanup / 单引擎直出
+        - Single engine + online cleanup / 单引擎 + 智能整理
+        - Dual engine (source) / 双引擎（源码版）
+    validations:
+      required: true
+  - type: input
+    id: length
+    attributes:
+      label: About how long did you speak? / 大约说了多久
+      placeholder: 5 s / 45 s
+  - type: input
+    id: version
+    attributes:
+      label: Scribe version / 版本
+      placeholder: 0.1.2-alpha
+    validations:
+      required: true

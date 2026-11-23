@@ -8,7 +8,8 @@ import time
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QPoint, QTimer, Signal, Slot
+from PySide6.QtGui import QCursor, QGuiApplication
 from PySide6.QtWidgets import QApplication
 
 from scribe import dual_engine, gpu_check, keys, settings, single_instance, vocab
@@ -31,12 +32,17 @@ from scribe.llm import LlmClient, ServiceStatus
 from scribe.mic_guard import MicGuard
 from scribe.onboarding import Notices
 from scribe.output import (WinClipboard, WinKeys, deliver, foreground_elevated, foreground_window,
-                           prepare_modifiers, read_accessible_selection, read_selection, window_application)
+                           prepare_modifiers, read_accessible_selection, read_selection, read_selection_full,
+                           selection_editable, window_application)
 from scribe.paths import installed_launcher, logs_dir, settings_dir, shared_data_dir
 from scribe.pipeline import Pipeline
 from scribe.polish_services import ServiceList
 from scribe.preview import LivePreview
 from scribe.provider_store import ProviderStore, migrate_order, store_path
+from scribe.selection_watch import SelectionWatcher
+from scribe.translate import translate
+from scribe.translate_flow import TranslateFlow, logical_point
+from scribe.translate_ui import TranslateBar, TranslateCard, TranslateToast
 from scribe.tray import Tray, format_download, format_gb, format_stats, make_icon
 from scribe.vocab_store import VocabularyStore
 from scribe.vocab_window import VocabularyWindow
@@ -56,6 +62,59 @@ class _Bridge(QObject):
     @Slot(object)
     def invoke(self, fn):
         fn()
+
+
+class _TranslateView:
+    """把划词翻译的三个小窗口包成 TranslateFlow 需要的 FlowView。坐标都是 Qt 逻辑像素。"""
+
+    def __init__(self, bar: TranslateBar, card: TranslateCard, toast: TranslateToast):
+        self.bar, self.card, self._toast = bar, card, toast
+        self._point = (0, 0)
+
+    def show_bar(self, x, y, first_time):
+        self._point = (x, y)
+        self.bar.show_at(x, y, first_time=first_time)
+
+    def hide_bar(self):
+        self.bar.hide_now()
+
+    def fade_bar(self):
+        self.bar.fade()
+
+    def show_loading(self, x, y, target, source):
+        self._point = (x, y)
+        self.card.show_loading(x, y, target, source)
+
+    def show_result(self, t, target, editable):
+        self.card.show_result(t, target, editable=editable)
+
+    def show_error(self, services):
+        self.card.show_error(services)
+
+    def show_no_service(self):
+        self.card.show_no_service()
+
+    def toast(self, text):
+        self._toast.flash(text, *self._point)
+
+    def close_card(self):
+        if self.card.showing:
+            self.card.hide()          # 不走卡片自己的关闭, 免得 closed 信号再回到 flow
+
+    def card_visible(self):
+        return self.card.showing
+
+    def bar_visible(self):
+        return self.bar.isVisible()
+
+    def contains(self, x, y):
+        return any(w.isVisible() and w.frameGeometry().contains(QPoint(x, y)) for w in (self.bar, self.card))
+
+
+def _logical(x: int, y: int) -> tuple:
+    screens = [(g.left(), g.top(), g.width(), g.height(), s.devicePixelRatio())
+               for s in QGuiApplication.screens() for g in (s.geometry(),)]
+    return logical_point(x, y, screens)
 
 
 def _file_log(line: str) -> None:
@@ -155,6 +214,7 @@ def main() -> int:
         _file_log("vocab load error: %s" % type(e).__name__)
         words = VocabularyStore(data_dir, [])
     llm = LlmClient(service_confs(entries))
+    translate_llm = LlmClient(service_confs(entries))   # 划词翻译独立一份: 慢请求和降级不影响听写整理
     _file_log("llm services %d: %s" % (len(llm.providers), ",".join(c.name for c in llm.providers) or "none"))
 
     whisper = WhisperEngine()
@@ -375,6 +435,7 @@ def main() -> int:
         store.save(new_entries)
         entries = [dict(e) for e in new_entries]
         llm.set_providers(service_confs(entries))
+        translate_llm.set_providers(service_confs(entries))
         _file_log("llm services %d: %s" % (len(llm.providers), ",".join(c.name for c in llm.providers) or "none"))
         updated = settings.apply_service_change(prefs, before, len(llm.providers))
         if updated is not prefs:
@@ -516,12 +577,22 @@ def main() -> int:
         else:
             tray.showMessage("BABEL Scribe", "已复制最终文字")
 
+    def set_translate(enabled: bool) -> None:
+        try:
+            update_preference("selection_translate", bool(enabled))
+        except OSError as e:
+            _file_log("settings save error: %s" % type(e).__name__)
+            tray.showMessage("BABEL Scribe", "划词翻译设置未保存")
+        if general_page is not None:
+            general_page.sync()
+
     tray = Tray(on_quit=app.quit,
                 services=lambda: [(e["id"], e.get("name") or e.get("preset", "")) for e in entries],
                 on_service=on_service,
                 stats=lambda: format_stats([(c.label, llm.recent_ms(c.id)) for c in llm.providers]),
                 on_main=open_main_window, recent=recent_history, copy_recent=copy_recent,
-                on_click=retry_models)
+                on_click=retry_models,
+                translate_enabled=lambda: prefs["selection_translate"], on_translate_toggled=set_translate)
     notices = Notices(lambda: prefs, save_pref)
     last_notice = ""
     dual_gpu = None
@@ -711,6 +782,8 @@ def main() -> int:
         worker.submit(capture)
 
     def on_action(action: Action) -> None:
+        if action is Action.START:
+            flow.dictation_started()
         if learning or not (action is Action.START or recorder.recording):
             return
         if action is Action.START and not recorder.recording and not mic_guard.before_record():
@@ -819,14 +892,67 @@ def main() -> int:
             save_pref("dual_engine", False)
     ensure_models()
 
+    # 划词翻译: 鼠标钩子只判手势; 点了悬浮条才读选区、联网
+    translate_bar, translate_card, translate_toast = TranslateBar(), TranslateCard(), TranslateToast()
+
+    def read_for_translate(target: int):
+        def target_ok() -> bool:
+            return foreground_window() == target
+        text = read_selection_full(clip, win_keys, target=target, target_ok=target_ok)
+        return text if text is not None else read_accessible_selection(target, target_ok)
+
+    flow = TranslateFlow(
+        read=read_for_translate,
+        editable=lambda target: selection_editable(target, lambda: foreground_window() == target),
+        run=lambda text, target: translate(translate_llm, words.current, text, target),
+        deliver=lambda target, text: deliver(
+            text, clip, win_keys, foreground_elevated, prepare=prepare_modifiers,
+            target_ok=lambda: foreground_window() == target,
+            force_typing=use_typing(window_application(target))),
+        copy=clip.set_text, foreground=foreground_window,
+        submit=lambda fn: threading.Thread(target=fn, daemon=True, name="scribe-translate").start(),
+        post=post, view=_TranslateView(translate_bar, translate_card, translate_toast), log=_file_log,
+        services=lambda: [c.label or c.name for c in translate_llm.providers],
+        first_time=lambda: not prefs["translate_noticed"],
+        prewarm=translate_llm.prewarm,
+        noticed=lambda: save_pref("translate_noticed", True))
+    translate_bar.chosen.connect(flow.choose)
+    translate_bar.hovered.connect(flow.hover)
+    translate_card.replace_requested.connect(flow.replace)
+    translate_card.copy_requested.connect(flow.copy_result)
+    translate_card.retry_requested.connect(flow.retry)
+    translate_card.closed.connect(flow.close)
+
+    def offer_later(x: int, y: int, target: int) -> None:
+        lx, ly = _logical(x, y)
+        QTimer.singleShot(150, lambda: flow.offer(lx, ly, target))   # 等目标程序把选区定下来
+
+    def translate_tick() -> None:
+        if translate_bar.isVisible():
+            pos = QCursor.pos()
+            flow.moved(pos.x(), pos.y())
+        flow.tick(time.monotonic())
+
+    selection_watcher = SelectionWatcher(
+        on_offer=lambda x, y, target: post(lambda: offer_later(x, y, target)),
+        on_mouse_down=lambda x, y: post(lambda: flow.on_mouse_down(*_logical(x, y))),
+        enabled=lambda: prefs["selection_translate"], dictating=lambda: recorder.recording,
+        excluded=lambda: set(prefs["translate_excluded"]), log=_file_log)
+
     hotkey = HotkeyListener(HotkeyMachine(), emit=lambda action: post(lambda: on_action(action)),
                             on_learn=lambda: post(on_learn),
                             trigger=lambda: settings.HOTKEYS[prefs["hotkey"]][1],
-                            enabled=lambda: general_page is None or not general_page.capturing)
+                            enabled=lambda: general_page is None or not general_page.capturing,
+                            card_keys=flow.card_keys,
+                            on_card_key=lambda vk: post(lambda: flow.on_card_key(vk)),
+                            on_key=lambda vk: (flow.key_down(vk), post(lambda: flow.on_key(vk))))
     hotkey.start()
+    selection_watcher.start()
 
     ticker = QTimer(interval=50, timeout=controller.tick)
     ticker.start()
+    translate_ticker = QTimer(interval=50, timeout=translate_tick)
+    translate_ticker.start()
     idle_ticker = QTimer(interval=1000, timeout=check_idle)
     idle_ticker.start()
     history_ticker = QTimer(interval=60 * 60 * 1000, timeout=prune_history)
@@ -839,6 +965,7 @@ def main() -> int:
     stop_edit_watch()
     word_capsule.dismiss()
     hotkey.stop()
+    selection_watcher.stop()
     if mic_guard.stream is not None:
         mic_guard.stream.stop()
     worker.shutdown(wait=False)

@@ -156,3 +156,145 @@ def test_f8_dictation_does_not_replace_right_ctrl_learning():
     assert event(listener, 0x4C, down=False)
     assert not event(listener, 0xA3, down=False)
     assert got == [A.START, A.STOP, "learn"]
+
+
+# ---- 翻译卡片开着时截获回车 / Esc ----
+
+def listener(**kw):
+    return HotkeyListener(HotkeyMachine(), [].append, clock=count().__next__, **kw)
+
+
+def test_enter_passes_when_card_closed():
+    l = listener(card_keys=lambda: frozenset())
+    assert l._press(0x0D) is False and l._release(0x0D) is False
+
+
+def test_enter_passes_when_card_cannot_replace():
+    l = listener(card_keys=lambda: frozenset({0x1B}))
+    assert l._press(0x0D) is False and l._release(0x0D) is False
+
+
+def test_enter_suppressed_and_reported_when_replace_ready():
+    seen = []
+    l = listener(card_keys=lambda: frozenset({0x1B, 0x0D}), on_card_key=seen.append)
+    assert l._press(0x0D) is True and l._release(0x0D) is True and seen == [0x0D]
+
+
+def test_esc_suppressed_while_card_visible():
+    seen = []
+    l = listener(card_keys=lambda: frozenset({0x1B}), on_card_key=seen.append)
+    assert l._press(0x1B) is True and l._release(0x1B) is True and seen == [0x1B]
+
+
+def test_every_key_reported_to_on_key():
+    seen = []
+    l = listener(on_key=seen.append)
+    l._press(0x41)
+    l._press(0xA0)
+    assert seen == [0x41]
+
+
+def test_card_key_claimed_even_when_dictation_disabled():
+    l = listener(card_keys=lambda: frozenset({0x0D}), enabled=lambda: False)
+    assert l._press(0x0D) is True and l._release(0x0D) is True
+
+
+def test_claimed_key_does_not_reach_dictation_machine():
+    got = []
+    l = HotkeyListener(HotkeyMachine(), got.append, clock=count().__next__,
+                       card_keys=lambda: frozenset({0x1B, 0x0D}))
+    assert l._press(0x1B) is True       # 听写空闲: 卡片截下 Esc, 状态机收不到
+    assert l._press(0x0D) is True
+    assert got == [] and l.machine.state == "idle"
+
+
+def test_card_keys_not_claimed_while_holding_to_dictate():
+    got, seen = [], []
+    l = HotkeyListener(HotkeyMachine(), got.append, clock=count().__next__,
+                       card_keys=lambda: frozenset({0x1B, 0x0D}), on_card_key=seen.append)
+    l._press(0xA3)                      # 右 Ctrl 按住, 正在录音
+    assert l._press(0x1B) is False      # Esc 照常取消听写, 不截给卡片
+    assert got == [A.START, A.CANCEL] and seen == []
+    assert l._release(0x1B) is False
+
+
+def test_card_keys_not_claimed_during_handsfree():
+    got, seen = [], []
+    l = HotkeyListener(HotkeyMachine(), got.append, clock=(i * 0.05 for i in count()).__next__,
+                       card_keys=lambda: frozenset({0x1B, 0x0D}), on_card_key=seen.append)
+    l._press(0xA3); l._release(0xA3)    # 双击进入免手持
+    l._press(0xA3); l._release(0xA3)
+    assert l.machine.state == "handsfree"
+    assert l._press(0x0D) is False      # 回车不截
+    assert l._press(0x1B) is False      # Esc 取消免手持听写
+    assert got[-1] == A.CANCEL and l.machine.state == "idle" and seen == []
+
+
+def test_unclaimed_key_still_cancels_dictation():
+    got = []
+    l = HotkeyListener(HotkeyMachine(), got.append, clock=count().__next__,
+                       card_keys=lambda: frozenset({0x0D}))
+    l._press(0xA3)
+    l._press(0x41)
+    assert got == [A.START, A.CANCEL]
+
+
+def test_claimed_key_does_not_trigger_learn_word():
+    learned = []
+    l = HotkeyListener(HotkeyMachine(), [].append, clock=count().__next__,
+                       on_learn=lambda: learned.append(1), trigger=lambda: 0x77,
+                       card_keys=lambda: frozenset({0x4C}))   # 听写键是 F8: 右 Ctrl 只是修饰键
+    l._press(0xA3)
+    assert l._press(0x4C) is True       # 卡片声明了 L: 照截, 但不是学词
+    l._release(0x4C)
+    l._release(0xA3)
+    assert learned == []
+
+
+def test_release_claimed_even_if_card_keys_changed():
+    keys = {"v": frozenset({0x0D})}
+    l = listener(card_keys=lambda: keys["v"])
+    assert l._press(0x0D) is True
+    keys["v"] = frozenset()             # 按住期间卡片关了
+    assert l._release(0x0D) is True
+    assert l._release(0x0D) is False    # 登记已清, 之后的松开照常放行
+
+
+def test_release_of_unclaimed_press_passes_even_if_card_opens():
+    keys = {"v": frozenset()}
+    l = listener(card_keys=lambda: keys["v"])
+    assert l._press(0x0D) is False
+    keys["v"] = frozenset({0x0D})
+    assert l._release(0x0D) is False
+
+
+def test_autorepeat_of_claimed_key_reports_once_and_stays_claimed():
+    seen = []
+    keys = {"v": frozenset({0x0D})}
+    l = listener(card_keys=lambda: keys["v"], on_card_key=seen.append)
+    assert l._press(0x0D) is True
+    keys["v"] = frozenset()
+    assert l._press(0x0D) is True       # 自动重复仍属同一次被截的按下
+    assert seen == [0x0D]
+
+
+def test_modifiers_still_tracked_and_never_reported():
+    seen = []
+    l = listener(on_key=seen.append, card_keys=lambda: frozenset({0xA3}))
+    l._press(0xA3)
+    assert 0xA3 in l._held_modifiers and seen == []
+    l._release(0xA3)
+    assert 0xA3 not in l._held_modifiers
+
+
+def test_callback_exceptions_cannot_break_the_hook():
+    def boom(vk):
+        raise RuntimeError("callback bug")
+
+    def bad_keys():
+        raise RuntimeError("card_keys bug")
+
+    l = listener(card_keys=lambda: frozenset({0x0D}), on_card_key=boom, on_key=boom)
+    assert l._press(0x0D) is True and l._release(0x0D) is True
+    l2 = listener(card_keys=bad_keys)
+    assert l2._press(0x0D) is False and l2._release(0x0D) is False

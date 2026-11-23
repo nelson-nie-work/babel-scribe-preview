@@ -113,3 +113,23 @@ def test_set_status_detail_goes_to_tooltip(qapp_offscreen):
     t.set_status("就绪")
     assert t.toolTip() == "BABEL Scribe · 就绪"
     t.hide()
+
+
+def test_tray_translate_toggle(qapp_offscreen):
+    state = {"on": True}
+    got = []
+    tray = Tray(lambda: None, translate_enabled=lambda: state["on"], on_translate_toggled=got.append)
+    act = next(a for a in tray.contextMenu().actions() if a.text() == "划词翻译")
+    assert act.isCheckable() and act.isChecked()
+    state["on"] = False
+    tray.contextMenu().aboutToShow.emit()
+    assert not act.isChecked()
+    act.trigger()
+    assert got == [True]
+    tray.hide()
+
+
+def test_tray_without_translate_callbacks_has_no_translate_item(qapp_offscreen):
+    tray = Tray(lambda: None)
+    assert "划词翻译" not in [a.text() for a in tray.contextMenu().actions()]
+    tray.hide()

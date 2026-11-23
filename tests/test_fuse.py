@@ -22,8 +22,14 @@ def test_messages_wrap_inputs_in_tags():
 
 def test_natural_prompt_preserves_spoken_content():
     prompt = build_messages("", "我想public。", "", "natural")[0]["content"]
-    assert "轻度整理" in prompt and "保留原语言" in prompt and "不要概括、合并或省略" in prompt
+    assert "保留原语言" in prompt and "不要概括、合并或省略" in prompt
     assert "只保留最终意思" not in prompt
+
+
+def test_natural_prompt_lets_the_model_fix_misheard_words():
+    # 2026-11-23: 11-17 起「以 B 的措辞为准」「拿不准时保留识别原文」让整理几乎不再纠错(改动率 9.4% → 0.3%)
+    prompt = build_messages("", "转给NT gravity了", "", "natural")[0]["content"]
+    assert "听错" in prompt and "拿不准时保留识别原文" not in prompt and "以 B 的措辞" not in prompt
 
 
 def test_guard_accepts_filler_removal():
@@ -87,33 +93,26 @@ TERMS = ["Claude", "DeepSeek", "新桥NAS", "DEMO TOOLS"]
 @pytest.mark.parametrize(("source", "edited"), [
     ("识别模型先用whisper润色。", "识别模型先用 Whisper，润色。"),                  # 大小写、空格
     ("用cloud写代码的时候。", "用 Claude 写代码的时候。"),                          # 换成词库词条
-    ("润色用deepse备用的是GLM。", "润色用 DeepSeek，备用的是 GLM。"),
+    ("推到gith上了。", "推到 GitHub 上了。"),                                       # 听错的英文专名(2026-11-23 起放行)
+    ("然后转给NT gravity了吗？", "然后转给 anti-gravity 了吗？"),
+    ("deeven这个工具我还在试用。", "Devin 这个工具我还在试用。"),
+    ("这是根据给GPT model的pro来确定的吗？", "这是根据给 GPT model 的 prompt 来确定的吗？"),
+    ("工作流的十项也记得要落实。", "工作流的事项也记得要落实。"),                   # 同音错字
     ("今天同步到新桥n，在在另一台电脑上接手。", "今天同步到新桥 n，在另一台电脑上接手。"),  # 结巴
-    ("自由说呃行呃，你今天能出来吗？", "自由说，行，你今天能出来吗？"),             # 句中语气词
-    ("帮我把上周的周报这发到群里。", "帮我把上周的周报发到群里。"),                 # 一个孤立的多余字
-    ("语音键盘要做的像它一样。", "语音键盘要做得像它一样。"),                       # 的/得
-    ("deep seek 的接口", "DeepSeek 的接口"),                                       # 只是连写不同
+    ("自由说呃行呃，你今天能出来吗？", "自由说，行，你今天能出来吗？"),             # 语气词
 ])
-def test_natural_check_accepts_light_corrections(source, edited):
-    assert fuse.keeps_natural_words(edited, source, TERMS)
+def test_fact_check_accepts_corrections(source, edited):
+    assert fuse.keeps_facts(edited, source)
 
 
 @pytest.mark.parametrize(("source", "edited"), [
     ("跑完检查以后，别公开安装包。", "跑完检查以后，公开安装包。"),                 # 删否定词
-    ("我先把 GitHub 链接发给大家。", "我先把链接发给大家。"),                        # 删英文词
+    ("这个接口 does not work。", "这个接口 does work。"),
     ("等 3.5 秒再重试。", "等 35 秒再重试。"),                                       # 改数字
+    ("检查 status != 200 时的提示。", "检查 status = 200 时的提示。"),               # 改符号
     ("我们约在周三，不对，周四开会。", "我们约在周四开会。"),                        # 删改口过程
-    ("先生成预览。暂时保留原目录。", "先生成预览。"),                                # 删一句
-    ("推到gith上了。", "推到 GitHub 上了。"),                                       # 不在词库的改写
-    ("要做的像ty一样。", "要做得和 ty 一样。"),                                     # 近义替换
-    ("把文档公开。", "把文档公开给所有人。"),                                       # 新增内容
-    ("用cloud写的那段代码在服务器上。", "用 Claude 写的。"),                         # 词条替换不能吞掉大段
+    ("先生成预览。暂时保留原目录。之后核对版本。", "先生成预览。之后核对版本。"),    # 删一句
+    ("如果审核通过就公开。随后把文档放进预览仓库。", "把文档放进预览仓库。"),
 ])
-def test_natural_check_rejects_content_changes(source, edited):
-    assert not fuse.keeps_natural_words(edited, source, TERMS)
-
-
-def test_stray_deletions_are_limited_by_length():
-    source = "我把这个文件这发到群里了这"
-    assert not fuse.keeps_natural_words("我把这个文件发到群里了", source)   # 删两个孤立字, 句子太短
-    assert fuse.keeps_natural_words("我把这个文件发到群里了这", source)
+def test_fact_check_rejects_lost_facts(source, edited):
+    assert not fuse.keeps_facts(edited, source)

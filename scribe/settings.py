@@ -18,6 +18,7 @@ DEFAULTS = {
     "dual_engine": False, "smart_polish": False, "idle_release": False, "typing_apps": [],
     "polish_user_off": False, "services_migrated": False,
     "dual_prompted": False, "ready_noticed": False, "startup_defaulted": False,
+    "selection_translate": False, "translate_noticed": False, "translate_excluded": [],
 }
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
@@ -60,7 +61,8 @@ def load(*, polish_available: bool = False) -> dict:
         if d[field] not in choices:
             d[field] = DEFAULTS[field]
     for field in ("dual_engine", "smart_polish", "idle_release", "polish_user_off", "services_migrated",
-                  "dual_prompted", "ready_noticed", "startup_defaulted"):
+                  "dual_prompted", "ready_noticed", "startup_defaulted", "selection_translate",
+                  "translate_noticed"):
         if not isinstance(d[field], bool):
             d[field] = defaults[field]
     if not isinstance(d["microphone"], str):
@@ -68,6 +70,8 @@ def load(*, polish_available: bool = False) -> dict:
     apps = d["typing_apps"]
     d["typing_apps"] = sorted({app.casefold() for app in apps if isinstance(app, str) and app}) \
         if isinstance(apps, list) else []
+    skipped = d["translate_excluded"]
+    d["translate_excluded"] = sorted({name.casefold() for name in skipped if isinstance(name, str) and name})         if isinstance(skipped, list) else []
     return d
 
 

@@ -1,5 +1,10 @@
 # Changelog / 更新记录
 
+## 0.1.5-alpha · 2026-11-23
+
+- **Translate selected text (off by default).** Turn on **划词翻译** in the tray menu or under **通用**. After you select text with the mouse, a small bar offers 中文 / English; click it to translate with your cleanup service. In an input field press Enter to replace the selection; elsewhere copy the result. The clipboard is restored afterwards, and apps can be excluded. [Details](docs/USAGE.md#划词翻译). 划词翻译：默认关闭，在托盘或「通用」页打开；选中文字后点悬浮条译成中文或英文，输入框里按回车替换，其他地方复制。
+- **Natural cleanup fixes misheard words again.** In 0.1.3 the Natural check rejected most fixes of misheard English names and homophones, so cleanup rarely changed the recognition. It now corrects misheard words again and only blocks edits that drop a negation, change a number or symbol, or drop a sentence. Wording may change a little more than in 0.1.3. 「自然」整理重新修正听错的词（包括英文专名），只拦删否定词、改数字或符号、删整句的改动；措辞可能比 0.1.3 多改一点。
+
 ## 0.1.3-alpha · 2026-11-18
 
 - **Set up online cleanup in the app.** Add OpenAI, DeepSeek, GLM, OpenRouter, SiliconFlow, a local Ollama or any OpenAI-compatible service under **通用 → 识别与整理 → 整理服务**, test the connection and save. Services are tried in list order, the tray menu can switch the first one, and keys are encrypted with Windows on this PC. An existing `keys.json` is imported on first launch. 整理服务在界面里添加、测试和排序，密钥加密保存，旧的 `keys.json` 自动导入。

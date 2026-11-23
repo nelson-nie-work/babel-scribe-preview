@@ -8,8 +8,8 @@
 <p align="center"><strong>Hold Right Ctrl to speak. Release it to type at the cursor.</strong><br>
 A Windows voice keyboard for people who think in Mandarin and type in English: dictate a prompt for Codex or Claude Code in Chinese, with file names, function names and product names in English, and Scribe types it where your cursor is.</p>
 <p align="center">
-  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.3-alpha-preview/BABEL-Scribe-Setup-x64-0.1.3-alpha.exe">Download for Windows x64</a></strong>
-  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.3-alpha-preview">Release notes and checksum</a>
+  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.5-alpha-preview/BABEL-Scribe-Setup-x64-0.1.5-alpha.exe">Download for Windows x64</a></strong>
+  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.5-alpha-preview">Release notes and checksum</a>
   · <a href="#help-test-the-preview">Help test the preview</a>
 </p>
 <p align="center"><sub>Free and open source (MIT) · Runs on CPU, NVIDIA GPU optional · ~120 MB installer · The app UI is currently Simplified Chinese only</sub></p>
@@ -22,6 +22,7 @@ A Windows voice keyboard for people who think in Mandarin and type in English: d
 - **Runs on your PC.** Recognition happens on device and works offline after a one-time model download. Audio never leaves your computer.
 - **Learns your words.** Correct a misheard name once and click **Remember**; Scribe fixes the same mistake next time. Add project names, people and jargon to a personal dictionary.
 - **Fast enough to talk to an AI.** On our 26-sentence internal benchmark, text appears about **0.08 s** after you release the key. Optional online cleanup with your own API key cut the error rate from 17.5% to 11.7% at about 1 s. [Method and numbers](docs/USAGE.md#26-句内部基准).
+- **Translate what you select (optional).** Turn on selection translation, select text in any app, and a small bar translates it to Chinese or English with your cleanup service. In an input field, press Enter to replace the selection. [How it works](docs/USAGE.md#划词翻译).
 - **Nothing to lose.** Every dictation is kept in a local history for 30 days, so text that missed the input field can be copied back.
 
 ## Get started
@@ -43,10 +44,10 @@ A Windows voice keyboard for people who think in Mandarin and type in English: d
 <details>
 <summary><strong>Windows says "Windows protected your PC"</strong></summary>
 
-The preview installer is not code-signed yet, so Microsoft Defender SmartScreen warns about it. Check that the file's SHA-256 matches the [release page](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.3-alpha-preview), then click **More info → Run anyway**.
+The preview installer is not code-signed yet, so Microsoft Defender SmartScreen warns about it. Check that the file's SHA-256 matches the [release page](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.5-alpha-preview), then click **More info → Run anyway**.
 
 ```powershell
-Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.3-alpha.exe -Algorithm SHA256
+Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.5-alpha.exe -Algorithm SHA256
 ```
 
 </details>
@@ -140,8 +141,8 @@ Scribe is an early preview, and real-world reports are the most useful thing you
 <p align="center"><strong>按住右 Ctrl 说话，松手就把文字打到光标处。</strong><br>
 给习惯用中文思考、用英文写代码的人做的 Windows 语音键盘。给 Codex 或 Claude Code 写 prompt 时，用中文说清楚要改什么，文件名、函数名和产品名照常说英文，松手就出字。</p>
 <p align="center">
-  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.3-alpha-preview/BABEL-Scribe-Setup-x64-0.1.3-alpha.exe">下载 Windows x64 安装包</a></strong>
-  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.3-alpha-preview">发行说明与校验值</a>
+  <strong><a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/download/v0.1.5-alpha-preview/BABEL-Scribe-Setup-x64-0.1.5-alpha.exe">下载 Windows x64 安装包</a></strong>
+  · <a href="https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.5-alpha-preview">发行说明与校验值</a>
   · <a href="#一起测试预览版">一起测试预览版</a>
 </p>
 <p align="center"><sub>免费开源（MIT）· CPU 即可运行，NVIDIA 显卡可选 · 安装包约 120 MB</sub></p>
@@ -154,6 +155,7 @@ Scribe is an early preview, and real-world reports are the most useful thing you
 - **在你的电脑上识别。** 首次下载模型后可离线听写，录音不离开本机。
 - **会记住你的词。** 听错的名字改一次、点「记住」，下次自动纠正。项目名、人名和行话可以加进个人词库。
 - **够快，适合跟 AI 对话。** 在 26 句内部基准里，松手约 **0.08 秒**出字。配置自己的 API 密钥开启在线整理后，错字率从 17.5% 降到 11.7%，约 1 秒出字。[测法与数据](docs/USAGE.md#26-句内部基准)。
+- **划词翻译（可选）。** 打开后在任意应用里选中文字，点悬浮条用你配置的整理服务译成中文或英文，在输入框里按回车直接替换。[用法](docs/USAGE.md#划词翻译)。
 - **不怕丢字。** 每次听写都在本机历史保留 30 天，没打进输入框的文字可以找回复制。
 
 ## 三步开始听写
@@ -175,10 +177,10 @@ Scribe is an early preview, and real-world reports are the most useful thing you
 <details>
 <summary><strong>Windows 提示「Windows 已保护你的电脑」</strong></summary>
 
-预览安装包还没有代码签名，所以 Microsoft Defender SmartScreen 会拦一下。先核对文件的 SHA-256 与[发行页](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.3-alpha-preview)一致，再点「更多信息 → 仍要运行」。
+预览安装包还没有代码签名，所以 Microsoft Defender SmartScreen 会拦一下。先核对文件的 SHA-256 与[发行页](https://github.com/nelson-nie-work/babel-scribe-preview/releases/tag/v0.1.5-alpha-preview)一致，再点「更多信息 → 仍要运行」。
 
 ```powershell
-Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.3-alpha.exe -Algorithm SHA256
+Get-FileHash .\BABEL-Scribe-Setup-x64-0.1.5-alpha.exe -Algorithm SHA256
 ```
 
 </details>

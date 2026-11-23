@@ -171,13 +171,12 @@ class Pipeline:
         started = time.perf_counter()
         local_text = corrected_b or corrected_a
         terms = lexicon.prompt(a, b)
-        term_names = [entry["term"] for entry in lexicon.terms]   # 核对时用整个词库: 只查表, 不占提示长度
 
         def accepted(text: str) -> bool:
             text = lexicon.correct_aliases(text)
             if style == "punctuation":
                 return fuse.same_words(text, local_text)
-            if style == "natural" and not fuse.keeps_natural_words(text, local_text, term_names):
+            if style == "natural" and not fuse.keeps_facts(text, local_text):
                 return False
             return fuse.guard_ok(text, corrected_a, corrected_b, terms)
 

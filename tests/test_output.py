@@ -3,7 +3,8 @@ import ctypes
 from types import SimpleNamespace
 
 from scribe import output
-from scribe.output import ClipboardProtected, deliver, modifier_plan, read_selection, unicode_inputs
+from scribe.output import (ClipboardProtected, deliver, modifier_plan, read_selection,
+                           read_selection_full, unicode_inputs)
 
 
 class FakeClip:
@@ -435,3 +436,201 @@ def test_registered_clipboard_formats_are_backed_up_but_gdi_handles_are_not():
     assert not output.restorable_format(2)        # CF_BITMAP: GDI 句柄
     assert not output.restorable_format(14)       # CF_ENHMETAFILE
     assert not output.restorable_format(0x0200)   # 应用私有区段
+
+
+class FakeRichClip:
+    """多格式假剪贴板: formats 为 {格式号: 字节}; 格式 13 视为文字。"""
+
+    def __init__(self, formats, protected=False):
+        self.formats = dict(formats)
+        self.version = 1
+        self.owner = 0
+        self.protected = protected
+
+    def sequence(self):
+        return self.version
+
+    def copy(self, formats, owner):
+        self.formats = dict(formats)
+        self.owner = owner
+        self.version += 1
+
+    def full_snapshot(self):
+        if self.protected:
+            raise ClipboardProtected("不可还原")
+        return self.version, dict(self.formats)
+
+    def selection_snapshot(self, target, previous_sequence):
+        if self.owner == target and self.version != previous_sequence:
+            return self.version, self.formats[13].decode()
+        return None
+
+    def restore_snapshot(self, backup, *, expected_sequence):
+        if self.version != expected_sequence:
+            return False
+        self.formats = dict(backup)
+        self.version += 1
+        return True
+
+    def discard_snapshot(self, backup):
+        backup.clear()
+
+
+def test_full_read_restores_every_format():
+    clip = FakeRichClip({13: b"old", 0xC00A: b"<html>"})
+    keys = FakeCopyKeys(lambda: clip.copy({13: b"Whisper"}, owner=9))
+    assert read_selection_full(clip, keys, target=9, modifiers=set, sleep=no_sleep) == "Whisper"
+    assert clip.formats == {13: b"old", 0xC00A: b"<html>"}
+
+
+def test_full_read_skips_copy_when_clipboard_cannot_be_restored():
+    clip = FakeRichClip({2: b"bitmap"}, protected=True)
+    keys = FakeCopyKeys(lambda: None)
+    assert read_selection_full(clip, keys, target=9, modifiers=set, sleep=no_sleep) is None
+    assert keys.calls == 0
+
+
+def test_full_read_ignores_copy_from_other_window():
+    clip = FakeRichClip({13: b"old"})
+    keys = FakeCopyKeys(lambda: clip.copy({13: b"x"}, owner=5))
+    assert read_selection_full(clip, keys, target=9, modifiers=set, sleep=no_sleep) is None
+
+
+def test_full_read_does_not_restore_over_newer_copy():
+    clip = FakeRichClip({13: b"old"})
+
+    def copy_then_user_copies():
+        clip.copy({13: b"sel"}, owner=9)
+        clip.copy({13: b"user"}, owner=3)
+    keys = FakeCopyKeys(copy_then_user_copies)
+    read_selection_full(clip, keys, target=9, modifiers=set, sleep=no_sleep)
+    assert clip.formats == {13: b"user"}
+
+
+def test_full_read_stops_when_target_lost():
+    clip = FakeRichClip({13: b"old"})
+    keys = FakeCopyKeys(lambda: clip.copy({13: b"sel"}, owner=9))
+    assert read_selection_full(clip, keys, target=9, target_ok=lambda: False, modifiers=set, sleep=no_sleep) is None
+    assert keys.calls == 0
+
+
+@contextmanager
+def _dummy_opened(_owner=None):
+    yield
+
+
+def _win_clip_with_fakes(monkeypatch, *, sequence=5, set_ok=True, snapshot=None):
+    """WinClipboard 的 Win32 层假件: 记录 GlobalFree 与 SetClipboardData, 句柄用整数代替。"""
+    freed, set_calls = [], []
+    monkeypatch.setattr(output, "_Opened", _dummy_opened)
+    monkeypatch.setattr(output, "_k32", SimpleNamespace(GlobalFree=freed.append))
+
+    def set_data(fmt, handle):
+        set_calls.append((fmt, handle))
+        return handle if set_ok else 0
+    monkeypatch.setattr(output, "_u32", SimpleNamespace(
+        GetClipboardSequenceNumber=lambda: sequence, EmptyClipboard=lambda: True,
+        SetClipboardData=set_data))
+    if snapshot is not None:
+        monkeypatch.setattr(output.WinClipboard, "_snapshot_open", staticmethod(snapshot))
+    return output.WinClipboard(42), freed, set_calls
+
+
+def test_full_snapshot_returns_sequence_and_backup(monkeypatch):
+    def snapshot(backup):
+        backup[13] = 101
+        return False
+    clip, freed, _ = _win_clip_with_fakes(monkeypatch, snapshot=snapshot)
+    assert clip.full_snapshot() == (5, {13: 101})
+    assert freed == []
+
+
+def test_full_snapshot_frees_handles_when_snapshot_raises(monkeypatch):
+    def snapshot(backup):
+        backup[13] = 101
+        raise ClipboardProtected("不可还原")
+    clip, freed, _ = _win_clip_with_fakes(monkeypatch, snapshot=snapshot)
+    try:
+        clip.full_snapshot()
+        raise AssertionError("应抛 ClipboardProtected")
+    except ClipboardProtected:
+        pass
+    assert freed == [101]
+
+
+def test_full_snapshot_rejects_ole_only_clipboard(monkeypatch):
+    clip, freed, _ = _win_clip_with_fakes(monkeypatch, snapshot=lambda backup: True)
+    try:
+        clip.full_snapshot()
+        raise AssertionError("应抛 ClipboardProtected")
+    except ClipboardProtected:
+        pass
+    assert freed == []
+
+
+def test_restore_snapshot_refuses_on_sequence_mismatch_and_frees_handles(monkeypatch):
+    clip, freed, set_calls = _win_clip_with_fakes(monkeypatch, sequence=6)
+    backup = {13: 101, 0xC00A: 102}
+    assert clip.restore_snapshot(backup, expected_sequence=5) is False
+    assert set_calls == [] and sorted(freed) == [101, 102] and backup == {}
+
+
+def test_restore_snapshot_hands_over_all_handles_without_freeing(monkeypatch):
+    clip, freed, set_calls = _win_clip_with_fakes(monkeypatch)
+    backup = {13: 101, 0xC00A: 102}
+    assert clip.restore_snapshot(backup, expected_sequence=5) is True
+    assert set_calls == [(13, 101), (0xC00A, 102)] and freed == [] and backup == {}
+
+
+def test_restore_snapshot_frees_leftover_handle_when_set_fails(monkeypatch):
+    clip, freed, set_calls = _win_clip_with_fakes(monkeypatch, set_ok=False)
+    backup = {13: 101, 0xC00A: 102}
+    try:
+        clip.restore_snapshot(backup, expected_sequence=5)
+        raise AssertionError("应抛 OSError")
+    except OSError:
+        pass
+    assert set_calls == [(13, 101)] and sorted(freed) == [101, 102] and backup == {}
+
+
+def test_full_read_drops_text_but_restores_when_target_lost_after_copy():
+    clip = FakeRichClip({13: b"old", 0xC00A: b"<html>"})
+    keys = FakeCopyKeys(lambda: clip.copy({13: b"sel"}, owner=9))
+    answers = iter([True, True, False])  # 等待修饰键 / 复制前 / 还原后
+    assert read_selection_full(clip, keys, target=9, target_ok=lambda: next(answers),
+                               modifiers=set, sleep=no_sleep) is None
+    assert clip.formats == {13: b"old", 0xC00A: b"<html>"}
+
+
+def test_parse_editable_accepts_only_one():
+    from scribe.output import _parse_editable
+    assert _parse_editable("1\r\n") and _parse_editable(" 1 ")
+    assert not _parse_editable("") and not _parse_editable("0") and not _parse_editable("10")
+
+
+def test_selection_editable_runs_windowless_and_fails_closed(monkeypatch):
+    from scribe import output
+    seen = {}
+
+    def run(command, **kwargs):
+        seen["command"], seen["kwargs"] = command, kwargs
+        return output.subprocess.CompletedProcess(command, 0, stdout="1\r\n")
+
+    monkeypatch.setattr(output.subprocess, "run", run)
+    assert output.selection_editable(9, lambda: True) is True
+    assert seen["command"][-2] == "-EncodedCommand"
+    assert seen["kwargs"]["creationflags"] == output.subprocess.CREATE_NO_WINDOW
+    assert seen["kwargs"]["timeout"] == 2.5
+    focus = iter([True, False])
+    assert output.selection_editable(9, lambda: next(focus)) is False   # 目标中途换了
+    assert output.selection_editable(0, lambda: True) is False
+
+    def boom(command, **kwargs):
+        raise output.subprocess.TimeoutExpired(command, 2.5)
+
+    monkeypatch.setattr(output.subprocess, "run", boom)
+    assert output.selection_editable(9, lambda: True) is False
+
+    monkeypatch.setattr(output.subprocess, "run",
+                        lambda command, **kwargs: output.subprocess.CompletedProcess(command, 1, stdout="1"))
+    assert output.selection_editable(9, lambda: True) is False

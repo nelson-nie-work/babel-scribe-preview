@@ -93,3 +93,14 @@ def test_exists_reports_settings_file(monkeypatch, tmp_path):
     assert settings.exists() is False
     settings.save({})
     assert settings.exists() is True
+
+
+def test_translate_defaults_and_cleanup(monkeypatch, tmp_path):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    settings.save({"selection_translate": "yes", "translate_noticed": 1,
+                   "translate_excluded": ["PS.exe", "", 3, "ps.exe", "Acad.exe"]})
+    d = settings.load()
+    assert d["selection_translate"] is False and d["translate_noticed"] is False
+    assert d["translate_excluded"] == ["acad.exe", "ps.exe"]
+    settings.save({"translate_excluded": "x.exe"})
+    assert settings.load()["translate_excluded"] == []

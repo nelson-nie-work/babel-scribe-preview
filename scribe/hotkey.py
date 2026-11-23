@@ -3,6 +3,7 @@
 状态转移见 docs/plans/2026-11-10-m0-m1-first-usable.md Task 2 的表。
 """
 import enum
+import logging
 import time
 from typing import Callable
 
@@ -15,6 +16,8 @@ _MODIFIERS = frozenset((0x10, 0x11, 0x12, 0x5B, 0x5C, *range(0xA0, 0xA6)))
 _KEY_DOWN = (0x100, 0x104)
 _KEY_UP = (0x101, 0x105)
 _INJECTED = 0x12
+
+log = logging.getLogger(__name__)
 
 
 class Action(enum.Enum):
@@ -85,13 +88,20 @@ class HotkeyListener:
                  clock: Callable[[], float] = time.monotonic, *,
                  on_learn: Callable[[], None] | None = None,
                  trigger: Callable[[], int] = lambda: _RIGHT_CTRL,
-                 enabled: Callable[[], bool] = lambda: True):
+                 enabled: Callable[[], bool] = lambda: True,
+                 card_keys: Callable[[], frozenset] = lambda: frozenset(),
+                 on_card_key: Callable[[int], None] = lambda vk: None,
+                 on_key: Callable[[int], None] = lambda vk: None):
         self.machine = machine
         self.emit = emit
         self.clock = clock
         self.on_learn = on_learn
         self.trigger = trigger
         self.enabled = enabled
+        self.card_keys = card_keys
+        self.on_card_key = on_card_key
+        self.on_key = on_key
+        self._claimed = set()   # 按下时被卡片截走的键, 松开也要截
         self._listener = None
         self._held_modifiers = set()
         self._l_down = False
@@ -105,9 +115,39 @@ class HotkeyListener:
         for a in actions:
             self.emit(a)
 
+    @staticmethod
+    def _safe_call(callback, *args):
+        """回调跑在钩子线程: 任何异常都不能弄坏钩子, 记日志后当没发生。"""
+        try:
+            return callback(*args)
+        except Exception:
+            log.exception("热键回调出错, 已忽略")
+            return None
+
+    def _claim_for_card(self, vk: int) -> bool:
+        """非修饰键按下: 先报给 on_key, 再看翻译卡片是否要截下(回车/Esc)。
+
+        在 enabled() 之前执行: 卡片开着时回车/Esc 无论听写是否启用都要截。
+        卡片没开或不能替换时返回 False, 回车照常交给前台应用(如微信发送)。
+        只在听写空闲时截: 录音或免手持时 Esc/回车照常交给听写。
+        """
+        self._safe_call(self.on_key, vk)
+        if vk in self._claimed:   # 自动重复: 仍属同一次被截的按下, 不再重复上报
+            return True
+        if self.machine.state != "idle":
+            return False
+        keys = self._safe_call(self.card_keys)
+        if keys and vk in keys:
+            self._claimed.add(vk)
+            self._safe_call(self.on_card_key, vk)
+            return True
+        return False
+
     def _press(self, vk: int) -> bool:
         if vk in _MODIFIERS:
             self._held_modifiers.add(vk)
+        elif self._claim_for_card(vk):
+            return True
         if not self.enabled():
             return False
         if vk == self._pressed_trigger:
@@ -147,6 +187,9 @@ class HotkeyListener:
 
     def _release(self, vk: int) -> bool:
         self._held_modifiers.discard(vk)
+        if vk in self._claimed:
+            self._claimed.discard(vk)
+            return True
         suppressed = vk == _L and self._suppress_l
         if vk == _L:
             self._l_down = self._suppress_l = False

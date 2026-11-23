@@ -3,15 +3,7 @@ import difflib
 import re
 import unicodedata
 
-from scribe.pinyin import PINYIN
-
 _NON_WORD = re.compile(r"[\W_]+")
-# 数字符号和英文词内的连字符等可能有含义，随词核对。
-_CONTENT_TOKEN = re.compile(
-    r"[+-]?[0-9]+(?:[.,:/-][0-9]+)*%?|"
-    r"[A-Za-z][A-Za-z0-9]*(?:[.'’_/@:-][A-Za-z0-9]+)*(?:\+\+|#)?|"
-    r"!=|[=<>+%]|[^\W_]"
-)
 _NATURAL_FILLER = re.compile(
     r"(?<![^\s，。！？；,.!?;])(?:[嗯呃哎啊]+|这个那个|就是那个)(?=$|[\s，。！？；,.!?;])"
     r"|[嗯呃哎啊](?=\s*(?:[。！？.!?]|$))"
@@ -73,11 +65,10 @@ def build_messages(a: str, b: str, terms_line: str, style: str = "natural") -> l
         prompt += (" 对照两份结果并结合上下文，还原最可能的原意。去掉口头禅和重复，中途改口只保留最终意思，"
                    "修正错字并补全标点。使用简洁正式的书面表达。保留专名、事实和原意，不补充解释。")
     else:
-        prompt += (" 本次只做轻度整理，以 B 的措辞和顺序为准，B 为空才用 A。"
-                   "只补标点、去掉明显的语气词，并结合上下文、另一份识别或词库修正确认的错字。"
-                   "中英混说时保留原语言、英文拼写及大小写，不翻译、不用同义词替换。"
-                   "逐句保留所有正文、动作、条件、否定、数字和改口的过程。不要概括、合并或省略。"
-                   "拿不准时保留识别原文。")
+        prompt += (" 以 B 为主、A 为参照(B 为空才用 A)，结合上下文和个人词库还原说话人最可能的原意:"
+                   "修正同音错字和听错的词(包括听错的英文专名、术语和产品名)，去掉口头禅和结巴重复，补全标点。"
+                   "中英混说时保留原语言，不翻译、不用同义词替换。"
+                   "逐句保留所有正文、动作、条件、否定、数字和改口的过程。不要概括、合并或省略。")
     return [
         {"role": "system", "content": prompt},
         {"role": "user", "content": "<A>%s</A>\n<B>%s</B>" % (a, b)},
@@ -88,70 +79,39 @@ def _sim(x: str, y: str) -> float:
     return difflib.SequenceMatcher(None, x, y, autojunk=False).ratio()
 
 
-# 语气词: 正文里任何位置都可删(_NATURAL_FILLER 只处理前后是标点的「啊、哎」等)。
-_DROPPABLE_FILLERS = {"嗯", "呃", "唔"}
-# 删掉会改变意思的字: 否定词永远不许当作多余字删除。
-_PROTECTED = set("不没别未非无莫勿否")
-# 识别常混用、意思相同的字(拼音表之外的补充)。
-_INTERCHANGEABLE = [set("的得地"), set("在再"), set("做作"), set("他她它"), set("那哪"), set("像象")]
-_MAX_TERM_SPAN = 3       # 替换成词库词条时, 被替换的原文最多几个词元
-_STRAY_PER = 20          # 每 20 个词元最多删 1 个孤立的多余字
+# 删掉会改变意思的词: 否定词。
+_NEGATIONS = set("不没别未非无莫勿否")
+_EN_NEGATION = re.compile(r"\b(?:not|no|never|don't|doesn't|didn't|isn't|aren't|won't|can't|cannot)\b|n't\b", re.I)
+_FACT_TOKEN = re.compile(r"[+-]?[0-9]+(?:[.,:/-][0-9]+)*%?|!=|[=<>%]")
+_SENTENCE = re.compile(r"[^。！？!?；;\n]+")
+SENTENCE_KEEP = 0.5        # 原文每句至少一半的字要在整理结果里按顺序出现, 否则视为删掉了这句
 
 
-def _natural_tokens(text: str) -> list[str]:
-    return _CONTENT_TOKEN.findall(_NATURAL_FILLER.sub(" ", unicodedata.normalize("NFKC", text)))
+def keeps_facts(out: str, source: str) -> bool:
+    """「自然」整理只拦会改变事实的改动, 措辞和听错的词随大模型修正(2026-11-23 放宽)。
 
-
-def _homophone(a: str, b: str) -> bool:
-    if a in PINYIN and PINYIN[a] == PINYIN.get(b):
-        return True
-    return any(a in group and b in group for group in _INTERCHANGEABLE)
-
-
-def _cjk(token: str) -> bool:
-    return len(token) == 1 and "一" <= token <= "鿿"
-
-
-def keeps_natural_words(out: str, source: str, terms=()) -> bool:
-    """对齐整理前后的正文, 逐处核对改动。
-
-    允许: 大小写与空格变化, 删语气词、紧邻的重复(结巴)和少量孤立的多余汉字,
-    已知同音或常混用字替换, 以及把至多 3 个词元换成本句相关的词库词条。
-    不允许: 新增内容、删英文词/数字/否定词、改数字符号、近义替换。
+    不允许: 删否定词(含改口里的「不对」)、改动或删掉数字与比较符号、删掉整句。
+    11-17 到 11-22 用过逐词核对, 把听错的英文专名和同音错字的修正也拦掉了, 整理几乎不再纠错。
     """
-    before, after = _natural_tokens(source), _natural_tokens(out)
-    if not before:
-        return not after
-    a = [t.casefold() for t in before]
-    b = [t.casefold() for t in after]
-    term_keys = {normalize(t) for t in terms if normalize(t)}
-    stray_budget = max(1, len(a) // _STRAY_PER)
-
-    def repeated(i1: int, i2: int) -> bool:
-        span = a[i1:i2]
-        n = len(span)
-        return n <= 4 and (a[i2:i2 + n] == span or a[max(0, i1 - n):i1] == span)
-
-    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
-        if op == "equal":
-            continue
-        if op == "insert":
-            return False
-        if op == "delete":
-            if all(t in _DROPPABLE_FILLERS for t in a[i1:i2]) or repeated(i1, i2):
-                continue
-            if i2 - i1 == 1 and _cjk(a[i1]) and a[i1] not in _PROTECTED and stray_budget:
-                stray_budget -= 1
-                continue
-            return False
-        src, dst = a[i1:i2], b[j1:j2]
-        if "".join(src) == "".join(dst):                  # 只是英文拆词/连写不同
-            continue
-        if len(src) <= _MAX_TERM_SPAN and normalize("".join(after[j1:j2])) in term_keys:
-            continue
-        if len(src) == len(dst) and all(_cjk(x) and _homophone(x, y) for x, y in zip(src, dst)):
-            continue
+    src = _NATURAL_FILLER.sub(" ", unicodedata.normalize("NFKC", source))
+    dst = unicodedata.normalize("NFKC", out)
+    if sum(dst.count(c) for c in _NEGATIONS) < sum(src.count(c) for c in _NEGATIONS):
         return False
+    if len(_EN_NEGATION.findall(dst)) < len(_EN_NEGATION.findall(src)):
+        return False
+    remaining = _FACT_TOKEN.findall(dst)
+    for token in _FACT_TOKEN.findall(src):
+        if token not in remaining:
+            return False
+        remaining.remove(token)
+    nd = normalize(dst)
+    for sentence in _SENTENCE.findall(src):
+        ns = normalize(sentence)
+        if len(ns) < 4:
+            continue
+        kept = sum(m.size for m in difflib.SequenceMatcher(None, ns, nd, autojunk=False).get_matching_blocks())
+        if kept < SENTENCE_KEEP * len(ns):
+            return False
     return True
 
 

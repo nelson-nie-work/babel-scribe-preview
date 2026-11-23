@@ -10,11 +10,11 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 SetCompressorDictSize 32
 SetOverwrite on
-VIProductVersion "0.1.3.0"
+VIProductVersion "0.1.5.0"
 VIAddVersionKey "ProductName" "BABEL Scribe"
 VIAddVersionKey "FileDescription" "BABEL Scribe CPU Preview Setup"
-VIAddVersionKey "FileVersion" "0.1.3-alpha"
-VIAddVersionKey "ProductVersion" "0.1.3-alpha"
+VIAddVersionKey "FileVersion" "0.1.5-alpha"
+VIAddVersionKey "ProductVersion" "0.1.5-alpha"
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\BABEL Scribe.exe"
@@ -74,7 +74,7 @@ Section "BABEL Scribe" Main
         CreateShortCut "$SMPROGRAMS\BABEL Scribe Preview\BABEL Scribe.lnk" "$INSTDIR\BABEL Scribe.exe"
         WriteRegStr HKCU "Software\BABEL Scribe Preview" "InstallDir" "$INSTDIR"
         WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "DisplayName" "BABEL Scribe Preview"
-        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "DisplayVersion" "0.1.3-alpha"
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "DisplayVersion" "0.1.5-alpha"
         WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
         WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "InstallLocation" "$INSTDIR"
         WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BABEL Scribe Preview" "DisplayIcon" "$INSTDIR\BABEL Scribe.exe"

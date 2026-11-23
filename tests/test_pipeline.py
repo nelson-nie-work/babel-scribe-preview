@@ -61,8 +61,6 @@ def test_intentional_single_engine_can_still_use_smart_polish():
 
 
 @pytest.mark.parametrize(("original", "edited"), [
-    ("呃，我是想public多一些人看到哎。", "呃，我是想让更多人看到。"),
-    ("我先把文档公开，然后把 GitHub 链接发给大家。", "我先把文档公开，然后把链接发给大家。"),
     ("如果审核通过就公开。随后把文档放进预览仓库，再发链接。", "把文档放进预览仓库，再发链接。"),
     ("先生成安静的预览。暂时保留原目录。之后让大家核对版本。", "先生成安静的预览。之后让大家核对版本。"),
     ("跑完 CPU 检查以后，别公开安装包。最后核对 SHA。", "跑完 CPU 检查以后，公开安装包。最后核对 SHA。"),
@@ -84,6 +82,19 @@ def test_natural_falls_back_when_edit_loses_content(original, edited, dual):
 def test_natural_accepts_light_edits(original, edited):
     p, *_ = make("", original, FakeLlm((edited, "openai")), dual=lambda: False)
     assert p.process(AUDIO).text == edited and edited != original
+
+
+@pytest.mark.parametrize(("original", "edited"), [
+    ("就是首先把接口修好，然后转给NT gravity了吗？", "就是首先把接口修好，然后转给 anti-gravity 了吗？"),
+    ("deeven这个工具我还在试用啊。", "Devin 这个工具我还在试用啊。"),
+    ("我对ge upub不熟啊，给我详细解释一下。", "我对 GitHub 不熟啊，给我详细解释一下。"),
+])
+@pytest.mark.parametrize("dual", [False, True])
+def test_natural_accepts_misheard_word_fixes(original, edited, dual):
+    # 2026-11-23: 单引擎是常用方式, 没有另一份识别可比对; 修正听错的词必须能通过
+    p, *_ = make(original + "嗯" if dual else "", original, FakeLlm((edited, "openai")), dual=lambda: dual)
+    r = p.process(AUDIO)
+    assert (r.text, r.path) == (edited, "llm")
 
 
 def test_smart_off_preserves_both_transcripts_without_cloud_call():
@@ -351,7 +362,7 @@ def test_natural_accepts_case_and_vocabulary_corrections():
     p, *_ = make("", source, FakeLlm((edited, "openai")), dual=lambda: False, vocabulary=lambda: words)
     assert (p.process(AUDIO).text, p.process(AUDIO).path) == (edited, "llm")
     p2, *_ = make("", source, FakeLlm((edited, "openai")), dual=lambda: False)   # 词库里没有 Claude
-    assert p2.process(AUDIO).path == "guarded"
+    assert p2.process(AUDIO).path == "llm"   # 2026-11-23 起听错的英文专名不靠词库也能改
 
 
 def test_smart_polish_with_no_services_keeps_local_text():

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QPointF, QSignalBlocker, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
+    QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
     QSizePolicy, QStyle, QStyleOptionComboBox, QVBoxLayout, QWidget,
 )
 
@@ -164,6 +164,24 @@ class GeneralPage(QScrollArea):
             self._row(group, "整理服务")
             group.addWidget(service_list)
 
+        group = self._group(layout, "划词翻译")
+        self._toggle(group, "selection_translate", "划词翻译",
+                     "用鼠标选中文字后，旁边出现译成中文或英文的小按钮。点了才会发送选中的文字。")
+        self._row(group, "不弹出的程序", "在这些程序里选中文字时不出现小按钮。填程序文件名，如 photoshop.exe。")
+        self.excluded_rows = QVBoxLayout()
+        self.excluded_rows.setSpacing(2)
+        group.addLayout(self.excluded_rows)
+        add_line = QHBoxLayout()
+        add_line.setContentsMargins(0, 2, 0, 8)
+        self.excluded_input = QLineEdit(objectName="vocabSearch", placeholderText="程序文件名")
+        self.excluded_input.setAccessibleName("不弹出的程序")
+        self.excluded_input.returnPressed.connect(self._add_excluded)
+        self.excluded_add = QPushButton("添加", autoDefault=False)
+        self.excluded_add.clicked.connect(self._add_excluded)
+        add_line.addWidget(self.excluded_input, 1)
+        add_line.addWidget(self.excluded_add)
+        group.addLayout(add_line)
+
         group = self._group(layout, "后台运行")
         self._toggle(group, "startup", "开机启动", "登录 Windows 后在托盘启动 Scribe。")
         self._toggle(group, "idle_release", "闲置 30 分钟释放模型", "下次听写重新加载，录音照常开始。")
@@ -252,9 +270,42 @@ class GeneralPage(QScrollArea):
                     control.setCurrentIndex(control.findData(prefs[key]))
                 else:
                     control.setChecked(self.startup() if key == "startup" else prefs[key])
+        self._sync_excluded(prefs["translate_excluded"])
         self.controls["style"].setEnabled(prefs["smart_polish"])
         if self.service_list is not None:
             self.service_list.refresh()
+
+    def _sync_excluded(self, names):
+        """按当前清单重建「不弹出的程序」行，每项带一个移除按钮。"""
+        while self.excluded_rows.count():
+            item = self.excluded_rows.takeAt(0)
+            if item.layout() is not None:
+                while item.layout().count():
+                    child = item.layout().takeAt(0).widget()
+                    if child is not None:
+                        child.deleteLater()
+        for name in names:
+            line = QHBoxLayout()
+            line.addWidget(_label(name, "settingLabel"), 1)
+            remove = QPushButton("移除", autoDefault=False)
+            remove.setAccessibleName(f"移除 {name}")
+            remove.clicked.connect(lambda _checked=False, value=name: self._remove_excluded(value))
+            line.addWidget(remove)
+            self.excluded_rows.addLayout(line)
+
+    def _add_excluded(self):
+        name = self.excluded_input.text().strip().casefold()
+        if name and "." not in name:
+            name += ".exe"           # 按 window_application 的进程名比较, 不带扩展名永远匹配不上
+        current = list(self.prefs()["translate_excluded"])
+        if not name or name in current:
+            self.excluded_input.clear()
+            return
+        self.excluded_input.clear()
+        self._change("translate_excluded", sorted({*current, name}))
+
+    def _remove_excluded(self, name):
+        self._change("translate_excluded", [n for n in self.prefs()["translate_excluded"] if n != name])
 
     def sync_dual(self):
         """只刷新双引擎说明与面板；下载进度每秒数次调用，不重建其他控件。"""

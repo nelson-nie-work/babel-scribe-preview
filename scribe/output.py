@@ -378,6 +378,37 @@ class WinClipboard:
             for saved in backup.values():
                 _k32.GlobalFree(saved)
 
+    def full_snapshot(self) -> tuple[int, dict[int, int]]:
+        """完整备份剪贴板所有可还原格式, 返回 (序号, 备份)。不可还原时抛 ClipboardProtected。"""
+        backup: dict[int, int] = {}
+        try:
+            with _Opened(self._owner_window):
+                if self._snapshot_open(backup):
+                    raise ClipboardProtected("剪贴板对象需要原应用提供")  # 交给 UIA 兜底
+                return self.sequence(), backup
+        except BaseException:
+            self.discard_snapshot(backup)
+            raise
+
+    def restore_snapshot(self, backup: dict[int, int], *, expected_sequence: int) -> bool:
+        """序号仍是 expected_sequence 才还原备份; 未移交给 Windows 的句柄一律释放。"""
+        try:
+            with _Opened(self._owner_window):
+                if self.sequence() != expected_sequence:
+                    return False
+                if not _u32.EmptyClipboard():
+                    raise OSError("EmptyClipboard 失败")
+                self._restore_open(backup)
+                return True
+        finally:
+            self.discard_snapshot(backup)
+
+    @staticmethod
+    def discard_snapshot(backup: dict[int, int]) -> None:
+        for fmt, handle in list(backup.items()):
+            _k32.GlobalFree(handle)
+            del backup[fmt]
+
     def set_text(self, text: Optional[str], *, expected_sequence: int | None = None) -> bool:
         data = None if text is None else text.encode("utf-16-le") + b"\x00\x00"
         h = None
@@ -491,6 +522,47 @@ def read_selection(clip: WinClipboard, keys: WinKeys, *, target: int,
     return None
 
 
+def read_selection_full(clip: WinClipboard, keys: WinKeys, *, target: int,
+                        target_ok: Callable[[], bool] = lambda: True,
+                        modifiers: Callable[[], set] = held_modifiers,
+                        sleep: Callable[[float], None] = time.sleep) -> Optional[str]:
+    """获取选中文字, 并完整还原用户原剪贴板(含 HTML 等富格式)。
+    无法完整备份时不发 Ctrl+C; 复制前或还原前剪贴板已被别处改动则不覆盖。"""
+    try:
+        for _ in range(20):
+            if not target_ok():
+                return None
+            if not modifiers():
+                break
+            sleep(0.025)
+        else:
+            return None
+
+        try:
+            sequence, backup = clip.full_snapshot()
+        except ClipboardProtected:
+            return None
+        try:
+            if not target_ok() or modifiers() or clip.sequence() != sequence:
+                return None
+            keys.ctrl_c()
+            for _ in range(25):
+                if clip.sequence() != sequence:
+                    copied = clip.selection_snapshot(target, sequence)
+                    if copied is None:
+                        return None
+                    copy_sequence, selected = copied
+                    if clip.restore_snapshot(backup, expected_sequence=copy_sequence) and target_ok():
+                        return selected
+                    return None
+                sleep(0.03)
+        finally:
+            clip.discard_snapshot(backup)
+    except OSError:
+        return None
+    return None
+
+
 _UIA_SELECTION = """
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -542,6 +614,57 @@ def read_accessible_selection(target: int, target_ok: Callable[[], bool]) -> Opt
     if result.returncode == 0 and 0 < len(text) <= 2000 and target_ok():
         return text
     return None
+
+
+_UIA_EDITABLE = """
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName UIAutomationClient
+$focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+$element = $focused
+$walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+for ($i = 0; $null -ne $element -and $i -lt 32; $i++) {
+    if ($element.Current.NativeWindowHandle -eq TARGET_WINDOW) {
+        $pattern = $null
+        if ($focused.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
+            if (-not $pattern.Current.IsReadOnly) { [Console]::Write('1') }
+            exit
+        }
+        $type = $focused.Current.ControlType
+        if (($type -eq [System.Windows.Automation.ControlType]::Edit -or
+             $type -eq [System.Windows.Automation.ControlType]::Document) -and
+            $focused.Current.IsKeyboardFocusable) {
+            [Console]::Write('1')
+        }
+        exit
+    }
+    $element = $walker.GetParent($element)
+}
+"""
+
+
+def _parse_editable(stdout: str) -> bool:
+    return (stdout or "").strip() == "1"
+
+
+def selection_editable(target: int, target_ok: Callable[[], bool]) -> bool:
+    """选区所在的焦点控件能否接受粘贴。判断不了一律当不可编辑(只给复制)。
+
+    有 ValuePattern 时以它的只读标志为准(网页文档通常带只读的 ValuePattern),
+    没有时才看控件类型是否为可获得键盘焦点的 Edit/Document。"""
+    if not target or not target_ok():
+        return False
+    command = uia_command(_UIA_EDITABLE.replace("TARGET_WINDOW", str(int(target))))
+    if command is None:
+        return False
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True, encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW, timeout=2.5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and _parse_editable(result.stdout) and target_ok()
 
 
 def prepare_modifiers(typing: bool, sleep: Callable[[float], None] = time.sleep) -> bool:
@@ -603,9 +726,14 @@ def _token_elevated(process_handle) -> Optional[bool]:
 
 def foreground_elevated() -> bool:
     """前台窗口属于提权进程而本进程未提权 → True(模拟按键会被 Windows 拦掉)。"""
+    return window_elevated(foreground_window())
+
+
+def window_elevated(window: int) -> bool:
+    """指定窗口属于提权进程而本进程未提权 → True。"""
     if _token_elevated(_k32.GetCurrentProcess()):
         return False
-    pid = _window_pid(foreground_window())
+    pid = _window_pid(window)
     if not pid:
         return False
     h = _k32.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION

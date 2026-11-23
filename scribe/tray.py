@@ -52,7 +52,9 @@ class Tray(QSystemTrayIcon):
                  *, on_main: Callable[[], None] | None = None,
                  recent: Callable[[], list[tuple[str, str]]] | None = None,
                  copy_recent: Callable[[str], None] | None = None,
-                 on_click: Callable[[], None] | None = None):
+                 on_click: Callable[[], None] | None = None,
+                 translate_enabled: Callable[[], bool] | None = None,
+                 on_translate_toggled: Callable[[bool], None] | None = None):
         super().__init__(make_icon())
         self.setToolTip(APP_NAME)
         self._stats = stats
@@ -83,6 +85,13 @@ class Tray(QSystemTrayIcon):
             self.activated.connect(
                 lambda reason: on_main() if reason == self.ActivationReason.DoubleClick else None
             )
+        if translate_enabled is not None and on_translate_toggled is not None:
+            translate_action = QAction("划词翻译", self._menu, checkable=True)
+            translate_action.setChecked(bool(translate_enabled()))
+            translate_action.triggered.connect(lambda checked=False: on_translate_toggled(checked))
+            self._menu.aboutToShow.connect(
+                lambda: translate_action.setChecked(bool(translate_enabled())))
+            self._menu.addAction(translate_action)
         if recent is not None and copy_recent is not None:
             recent_menu = self._menu.addMenu("最近听写")
 
